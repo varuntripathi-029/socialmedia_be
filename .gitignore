@@ -1,0 +1,56 @@
+# -------------------------
+# Maven & Spring Boot
+# -------------------------
+target/
+*.iml
+*.class
+*.jar
+*.war
+*.ear
+
+# -------------------------
+# IntelliJ IDEA
+# -------------------------
+.idea/
+*.ipr
+*.iws
+
+# -------------------------
+# Logs
+# -------------------------
+*.log
+logs/
+spring.log
+
+# -------------------------
+# OS / Temp Files
+# -------------------------
+.DS_Store
+Thumbs.db
+*.tmp
+
+# -------------------------
+# Environment / Secrets
+# -------------------------
+.env
+*.env
+.env.*
+application-dev.properties
+application-prod.properties
+application-local.properties
+
+# Optional: Specific to your project
+# Prevent leaking secrets (keep only application.properties template)
+src/main/resources/application.properties
+src/main/resources/application-secret.properties
+
+# -------------------------
+# File uploads
+# -------------------------
+src/main/resources/static/uploads/
+
+# -------------------------
+# Node / Vite (for frontend later)
+# -------------------------
+node_modules/
+dist/
