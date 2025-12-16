@@ -22,17 +22,21 @@ public class PostController {
     private final FileStorageService fileStorageService;
 
     @PostMapping
-    public ResponseEntity<PostResponse> createPost(@Valid @RequestBody CreatePostRequest request) {
+    public ResponseEntity<PostResponse> createPost(
+            @Valid @RequestBody CreatePostRequest request
+    ) {
         return ResponseEntity.ok(postService.createPost(request));
     }
 
     @PostMapping("/upload")
-    public ResponseEntity<ApiResponse> uploadImage(@RequestParam("file") MultipartFile file) {
-        String imageUrl = fileStorageService.storeFile(file);
+    public ResponseEntity<ApiResponse> uploadMedia(
+            @RequestParam("file") MultipartFile file
+    ) {
+        String fileUrl = fileStorageService.storeFile(file);
         return ResponseEntity.ok(ApiResponse.builder()
                 .success(true)
-                .message("Image uploaded successfully")
-                .data(imageUrl)
+                .message("File uploaded successfully")
+                .data(fileUrl)
                 .build());
     }
 

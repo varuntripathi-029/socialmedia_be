@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/posts/{postId}/likes")
+@RequestMapping("/api/posts/{postId}/like")
 @RequiredArgsConstructor
 public class LikeController {
 
@@ -22,7 +22,7 @@ public class LikeController {
     private final UserRepository userRepository;
     private final PostRepository postRepository;
 
-    @PostMapping("/{postId}/like")
+    @PostMapping
     public ResponseEntity<?> toggleLike(
             @PathVariable Long postId,
             Authentication auth
@@ -40,10 +40,18 @@ public class LikeController {
         return ResponseEntity.ok(Map.of("liked", liked));
     }
 
-
     @DeleteMapping
-    public ResponseEntity<ApiResponse> unlikePost(@PathVariable Long postId) {
-        likeService.unlikePost(postId);
+    public ResponseEntity<ApiResponse> unlikePost(
+            @PathVariable Long postId,
+            Authentication auth
+    ) {
+        String username = auth.getName();
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        likeService.unlikePost(user, postId);
+
         return ResponseEntity.ok(ApiResponse.builder()
                 .success(true)
                 .message("Post unliked successfully")
