@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class LikeService {
@@ -18,6 +20,18 @@ public class LikeService {
     private final LikeRepository likeRepository;
     private final PostRepository postRepository;
     private final UserService userService;
+    public boolean toggleLike(User user, Post post) {
+        Optional<Like> existing = likeRepository.findByUserAndPost(user, post);
+        if (existing.isPresent()) {
+            likeRepository.delete(existing.get());
+            return false;
+        } else {
+            Like like = Like.builder().user(user).post(post).build();
+            likeRepository.save(like);
+            return true;
+        }
+    }
+
 
     @Transactional
     public void likePost(Long postId) {

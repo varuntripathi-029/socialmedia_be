@@ -17,4 +17,6 @@ public class UserProfileResponse {
     private int followingCount;
     private List<UserResponse> followers;
     private List<UserResponse> following;
+    private boolean isFollowing;
+    private List<PostResponse> posts;
 }

@@ -48,25 +48,35 @@ public class AuthController {
     // -----------------------------
     @PostMapping("/google")
     public ResponseEntity<AuthResponse> googleAuth(@RequestBody GoogleAuthRequest request) {
-        // 1. Verify Google token and extract payload
+
+        if (request.getIdToken() == null || request.getIdToken().isBlank()) {
+            return ResponseEntity.badRequest().build(); // prevents unwanted inserts
+        }
+
         var payload = googleAuthService.verifyToken(request.getIdToken());
+
+        if (payload == null) {
+            return ResponseEntity.status(401).build(); // invalid Google token
+        }
+
         String email = payload.getEmail();
         String name = (String) payload.get("name");
 
-        // 2. Check if user already exists, else create new
+        if (email == null) {
+            return ResponseEntity.status(400).body(null);
+        }
+
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> userRepository.save(User.builder()
                         .email(email)
                         .username(email.split("@")[0])
                         .fullName(name)
-                        .password("GOOGLE_AUTH") // dummy since Google handles auth
+                        .password("GOOGLE_AUTH")
                         .build()));
 
-        // 3. Generate app JWT for this user
         var userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         String token = jwtService.generateToken(userDetails);
 
-        // 4. Build UserResponse DTO
         UserResponse userResponse = UserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
@@ -74,7 +84,7 @@ public class AuthController {
                 .fullName(user.getFullName())
                 .build();
 
-        // 5. Return structured AuthResponse (token + user)
         return ResponseEntity.ok(new AuthResponse(token, userResponse));
     }
+
 }

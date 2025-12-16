@@ -7,6 +7,7 @@ import com.socialmedia.app.repository.UserRepository;
 import com.socialmedia.app.service.FollowService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -80,4 +81,27 @@ public class UserController {
 
         return ResponseEntity.ok(users);
     }
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getMe() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String username = auth.getName();
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        UserResponse resp = UserResponse.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .build();
+
+        return ResponseEntity.ok(resp);
+    }
+
 }
