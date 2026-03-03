@@ -42,6 +42,12 @@ public class Post {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "event_location", length = 200)
+    private String eventLocation;
+
+    @Column(name = "event_date")
+    private LocalDateTime eventDate;
+
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Like> likes = new ArrayList<>();
 

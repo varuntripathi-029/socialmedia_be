@@ -14,4 +14,8 @@ public class CreatePostRequest {
     private String imageUrl;
 
     private String caption;
+
+    private String eventLocation;
+
+    private String eventDate;
 }

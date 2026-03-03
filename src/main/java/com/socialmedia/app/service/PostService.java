@@ -1,20 +1,22 @@
 package com.socialmedia.app.service;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.socialmedia.app.dto.request.CreatePostRequest;
 import com.socialmedia.app.dto.response.PostResponse;
 import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Post;
 import com.socialmedia.app.model.User;
+import com.socialmedia.app.repository.CommentRepository;
 import com.socialmedia.app.repository.LikeRepository;
 import com.socialmedia.app.repository.PostRepository;
-import com.socialmedia.app.repository.CommentRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +35,8 @@ public class PostService {
                 .user(currentUser)
                 .imageUrl(request.getImageUrl())
                 .caption(request.getCaption())
+                .eventLocation(request.getEventLocation())
+                .eventDate(request.getEventDate() != null ? java.time.LocalDateTime.parse(request.getEventDate()) : null)
                 .build();
 
         Post savedPost = postRepository.save(post);
@@ -88,6 +92,8 @@ public class PostService {
                 .likesCount(likesCount)
                 .commentsCount(commentsCount)
                 .isLikedByCurrentUser(isLiked)
+                .eventLocation(post.getEventLocation())
+                .eventDate(post.getEventDate())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();
