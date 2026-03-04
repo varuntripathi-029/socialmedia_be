@@ -1,20 +1,25 @@
 package com.socialmedia.app.controller;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.socialmedia.app.dto.request.GoogleAuthRequest;
 import com.socialmedia.app.dto.request.LoginRequest;
 import com.socialmedia.app.dto.request.RegisterRequest;
-import com.socialmedia.app.dto.request.GoogleAuthRequest;
 import com.socialmedia.app.dto.response.AuthResponse;
 import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.UserRepository;
 import com.socialmedia.app.service.AuthService;
+import com.socialmedia.app.service.CustomUserDetailsService;
 import com.socialmedia.app.service.GoogleAuthService;
 import com.socialmedia.app.service.JwtService;
-import com.socialmedia.app.service.CustomUserDetailsService;
+
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -53,10 +58,19 @@ public class AuthController {
             return ResponseEntity.badRequest().build(); // prevents unwanted inserts
         }
 
+        if (request.getUsername() == null || request.getUsername().isBlank()) {
+            return ResponseEntity.badRequest().build(); // must provide username for potentially new accounts
+        }
+
         var payload = googleAuthService.verifyToken(request.getIdToken());
 
         if (payload == null) {
             return ResponseEntity.status(401).build(); // invalid Google token
+        }
+
+        Boolean emailVerified = payload.getEmailVerified();
+        if (emailVerified == null || !emailVerified) {
+            return ResponseEntity.status(401).body(null);
         }
 
         String email = payload.getEmail();
@@ -66,13 +80,18 @@ public class AuthController {
             return ResponseEntity.status(400).body(null);
         }
 
+        // if email isn't in DB, they are a new user. check if username they asked for is taken
+        if (userRepository.findByEmail(email).isEmpty() && userRepository.existsByUsername(request.getUsername())) {
+            return ResponseEntity.status(409).build(); // Conflict - Username taken
+        }
+
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> userRepository.save(User.builder()
-                        .email(email)
-                        .username(email.split("@")[0])
-                        .fullName(name)
-                        .password("GOOGLE_AUTH")
-                        .build()));
+                .email(email)
+                .username(request.getUsername())
+                .fullName(name)
+                .password("GOOGLE_AUTH")
+                .build()));
 
         var userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         String token = jwtService.generateToken(userDetails);

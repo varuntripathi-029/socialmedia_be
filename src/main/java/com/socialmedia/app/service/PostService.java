@@ -26,6 +26,7 @@ public class PostService {
     private final LikeRepository likeRepository;
     private final CommentRepository commentRepository;
     private final UserService userService;
+    private final FollowService followService;
 
     @Transactional
     public PostResponse createPost(CreatePostRequest request) {
@@ -61,6 +62,30 @@ public class PostService {
     public List<PostResponse> getUserPosts(Long userId) {
         User currentUser = userService.getCurrentUser();
         List<Post> posts = postRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return posts.stream()
+                .map(post -> mapToPostResponse(post, currentUser.getId()))
+                .collect(Collectors.toList());
+    }
+
+    public List<PostResponse> getHomeFeed() {
+        User currentUser = userService.getCurrentUser();
+        List<Long> followingIds = followService.getFollowing(currentUser.getId()).stream()
+                .map(f -> f.getFollowing().getId())
+                .collect(Collectors.toList());
+
+        if (followingIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<Post> posts = postRepository.findByUserIdInOrderByCreatedAtDesc(followingIds);
+        return posts.stream()
+                .map(post -> mapToPostResponse(post, currentUser.getId()))
+                .collect(Collectors.toList());
+    }
+
+    public List<PostResponse> searchPosts(String tag) {
+        User currentUser = userService.getCurrentUser();
+        List<Post> posts = postRepository.searchByTagOrLocation(tag);
         return posts.stream()
                 .map(post -> mapToPostResponse(post, currentUser.getId()))
                 .collect(Collectors.toList());
