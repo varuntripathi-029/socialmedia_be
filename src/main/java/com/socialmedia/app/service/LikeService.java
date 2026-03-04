@@ -52,7 +52,7 @@ public class LikeService {
     }
 
     @Transactional
-    public void unlikePost(Long postId) {
+    public void unlikePost(User user, Long postId) {
         User currentUser = userService.getCurrentUser();
 
         if (!postRepository.existsById(postId)) {

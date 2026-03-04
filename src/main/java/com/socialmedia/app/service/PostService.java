@@ -1,20 +1,22 @@
 package com.socialmedia.app.service;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.socialmedia.app.dto.request.CreatePostRequest;
 import com.socialmedia.app.dto.response.PostResponse;
 import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Post;
 import com.socialmedia.app.model.User;
+import com.socialmedia.app.repository.CommentRepository;
 import com.socialmedia.app.repository.LikeRepository;
 import com.socialmedia.app.repository.PostRepository;
-import com.socialmedia.app.repository.CommentRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +26,7 @@ public class PostService {
     private final LikeRepository likeRepository;
     private final CommentRepository commentRepository;
     private final UserService userService;
+    private final FollowService followService;
 
     @Transactional
     public PostResponse createPost(CreatePostRequest request) {
@@ -33,6 +36,8 @@ public class PostService {
                 .user(currentUser)
                 .imageUrl(request.getImageUrl())
                 .caption(request.getCaption())
+                .eventLocation(request.getEventLocation())
+                .eventDate(request.getEventDate() != null ? java.time.LocalDateTime.parse(request.getEventDate()) : null)
                 .build();
 
         Post savedPost = postRepository.save(post);
@@ -57,6 +62,30 @@ public class PostService {
     public List<PostResponse> getUserPosts(Long userId) {
         User currentUser = userService.getCurrentUser();
         List<Post> posts = postRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return posts.stream()
+                .map(post -> mapToPostResponse(post, currentUser.getId()))
+                .collect(Collectors.toList());
+    }
+
+    public List<PostResponse> getHomeFeed() {
+        User currentUser = userService.getCurrentUser();
+        List<Long> followingIds = followService.getFollowing(currentUser.getId()).stream()
+                .map(f -> f.getFollowing().getId())
+                .collect(Collectors.toList());
+
+        if (followingIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<Post> posts = postRepository.findByUserIdInOrderByCreatedAtDesc(followingIds);
+        return posts.stream()
+                .map(post -> mapToPostResponse(post, currentUser.getId()))
+                .collect(Collectors.toList());
+    }
+
+    public List<PostResponse> searchPosts(String tag) {
+        User currentUser = userService.getCurrentUser();
+        List<Post> posts = postRepository.searchByTagOrLocation(tag);
         return posts.stream()
                 .map(post -> mapToPostResponse(post, currentUser.getId()))
                 .collect(Collectors.toList());
@@ -88,6 +117,8 @@ public class PostService {
                 .likesCount(likesCount)
                 .commentsCount(commentsCount)
                 .isLikedByCurrentUser(isLiked)
+                .eventLocation(post.getEventLocation())
+                .eventDate(post.getEventDate())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();
