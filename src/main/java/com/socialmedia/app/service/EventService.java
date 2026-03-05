@@ -41,6 +41,12 @@ public class EventService {
                 .startTime(request.getStartTime())
                 .endTime(request.getEndTime())
                 .maxParticipants(request.getMaxParticipants())
+                .city(request.getCity())
+                .eventType(request.getEventType())
+                .collegeName(request.getCollegeName())
+                .dressCode(request.getDressCode())
+                .targetAudience(request.getTargetAudience())
+                .isActive(true)
                 .organizer(organizer)
                 .mediaFiles(request.getMediaFiles() != null ? request.getMediaFiles() : List.of())
                 .build();
@@ -117,6 +123,20 @@ public class EventService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional
+    public EventResponse toggleEventStatus(Long eventId, String username, boolean isActive) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found id: " + eventId));
+
+        if (!event.getOrganizer().getUsername().equals(username)) {
+            throw new IllegalStateException("Only the event host can modify the event status.");
+        }
+
+        event.setIsActive(isActive);
+        Event savedEvent = eventRepository.save(event);
+        return mapToEventResponse(savedEvent);
+    }
+
     private EventResponse mapToEventResponse(Event event) {
         int activeParticipants = eventParticipantRepository.countByEventIdAndRsvpStatus(event.getId(), RSVPStatus.GOING);
 
@@ -128,6 +148,12 @@ public class EventService {
                 .startTime(event.getStartTime())
                 .endTime(event.getEndTime())
                 .maxParticipants(event.getMaxParticipants())
+                .city(event.getCity())
+                .eventType(event.getEventType())
+                .collegeName(event.getCollegeName())
+                .dressCode(event.getDressCode())
+                .targetAudience(event.getTargetAudience())
+                .isActive(event.getIsActive())
                 .organizer(mapToUserResponse(event.getOrganizer()))
                 .mediaFiles(event.getMediaFiles())
                 .createdAt(event.getCreatedAt())

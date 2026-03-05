@@ -52,6 +52,25 @@ public class Event {
     @Column(nullable = false)
     private Integer maxParticipants;
 
+    @Column(nullable = false)
+    private String city;
+
+    @Column(nullable = false)
+    private String eventType;
+
+    @Column
+    private String collegeName;
+
+    @Column
+    private String dressCode;
+
+    @Column
+    private String targetAudience;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean isActive = true;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organizer_id", nullable = false)
     private User organizer;

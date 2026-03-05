@@ -20,6 +20,14 @@ public class EventResponse {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Integer maxParticipants;
+    
+    private String city;
+    private String eventType;
+    private String collegeName;
+    private String dressCode;
+    private String targetAudience;
+    private Boolean isActive;
+
     private UserResponse organizer;
     private List<String> mediaFiles;
     private LocalDateTime createdAt;

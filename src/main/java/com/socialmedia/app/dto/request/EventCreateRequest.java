@@ -38,5 +38,15 @@ public class EventCreateRequest {
     @Min(value = 1, message = "Max participants must be at least 1")
     private Integer maxParticipants;
 
+    @NotBlank(message = "City is required")
+    private String city;
+
+    @NotBlank(message = "Event type is required")
+    private String eventType;
+
+    private String collegeName;
+    private String dressCode;
+    private String targetAudience;
+
     private List<String> mediaFiles;
 }
