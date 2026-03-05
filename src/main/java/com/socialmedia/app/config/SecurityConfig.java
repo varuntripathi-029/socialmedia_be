@@ -33,7 +33,8 @@ public class SecurityConfig {
                 .cors(org.springframework.security.config.Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/**", "/").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/events", "/api/events/**").permitAll()
                 .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
