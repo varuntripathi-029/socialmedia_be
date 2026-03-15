@@ -1,13 +1,18 @@
 package com.socialmedia.app.service;
 
-import com.socialmedia.app.model.Follow;
-import com.socialmedia.app.model.User;
-import com.socialmedia.app.repository.FollowRepository;
-import com.socialmedia.app.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import com.socialmedia.app.model.Follow;
+import com.socialmedia.app.model.FollowRequest;
+import com.socialmedia.app.model.NotificationType;
+import com.socialmedia.app.model.User;
+import com.socialmedia.app.repository.FollowRepository;
+import com.socialmedia.app.repository.FollowRequestRepository;
+import com.socialmedia.app.repository.UserRepository;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -15,6 +20,8 @@ public class FollowService {
 
     private final FollowRepository followRepository;
     private final UserRepository userRepository;
+    private final FollowRequestRepository followRequestRepository;
+    private final NotificationService notificationService;
 
     public void followUser(Long followerId, Long followingId) {
         if (followerId.equals(followingId)) {
@@ -30,12 +37,76 @@ public class FollowService {
             throw new IllegalStateException("Already following this user");
         }
 
-        Follow follow = Follow.builder()
-                .follower(follower)
-                .following(following)
-                .build();
+        if (following.isPrivate()) {
+            if (followRequestRepository.existsByFollowerAndFollowing(follower, following)) {
+                throw new IllegalStateException("Follow request already sent");
+            }
 
-        followRepository.save(follow);
+            FollowRequest request = FollowRequest.builder()
+                    .follower(follower)
+                    .following(following)
+                    .build();
+            followRequestRepository.save(request);
+
+            notificationService.createNotification(
+                    following, follower, NotificationType.FOLLOW_REQUEST, request.getId(),
+                    follower.getUsername() + " requested to follow you."
+            );
+        } else {
+            Follow follow = Follow.builder()
+                    .follower(follower)
+                    .following(following)
+                    .build();
+
+            followRepository.save(follow);
+
+            notificationService.createNotification(
+                    following, follower, NotificationType.NEW_FOLLOWER, following.getId(),
+                    follower.getUsername() + " started following you."
+            );
+        }
+    }
+
+    public void requestFollow(Long followerId, Long followingId) {
+        followUser(followerId, followingId); // Handles both private/public logic implicitly
+    }
+
+    public void acceptFollowRequest(Long requestId, Long currentUserId) {
+        FollowRequest request = followRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Follow request not found"));
+
+        if (!request.getFollowing().getId().equals(currentUserId)) {
+            throw new IllegalArgumentException("Unauthorized to accept this request");
+        }
+
+        User follower = request.getFollower();
+        User following = request.getFollowing();
+
+        if (followRepository.findByFollowerAndFollowing(follower, following).isEmpty()) {
+            Follow follow = Follow.builder()
+                    .follower(follower)
+                    .following(following)
+                    .build();
+            followRepository.save(follow);
+
+            notificationService.createNotification(
+                    follower, following, NotificationType.NEW_FOLLOWER, following.getId(),
+                    following.getUsername() + " accepted your follow request."
+            );
+        }
+
+        followRequestRepository.delete(request);
+    }
+
+    public void rejectFollowRequest(Long requestId, Long currentUserId) {
+        FollowRequest request = followRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Follow request not found"));
+
+        if (!request.getFollowing().getId().equals(currentUserId)) {
+            throw new IllegalArgumentException("Unauthorized to reject this request");
+        }
+
+        followRequestRepository.delete(request);
     }
 
     public void unfollowUser(Long followerId, Long followingId) {

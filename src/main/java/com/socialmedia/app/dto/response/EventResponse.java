@@ -26,7 +26,9 @@ public class EventResponse {
     private String collegeName;
     private String dressCode;
     private String targetAudience;
-    private Boolean isActive;
+    private String status;
+    @Builder.Default
+    private String type = "EVENT";
 
     private UserResponse organizer;
     private List<String> mediaFiles;

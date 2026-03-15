@@ -48,6 +48,7 @@ src/main/resources/application-secret.properties
 # File uploads
 # -------------------------
 src/main/resources/static/uploads/
+/uploads/
 
 # -------------------------
 # Node / Vite (for frontend later)

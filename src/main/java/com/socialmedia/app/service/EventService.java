@@ -13,10 +13,13 @@ import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Event;
 import com.socialmedia.app.model.EventParticipant;
+import com.socialmedia.app.model.EventStatus;
+import com.socialmedia.app.model.NotificationType;
 import com.socialmedia.app.model.RSVPStatus;
 import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.EventParticipantRepository;
 import com.socialmedia.app.repository.EventRepository;
+import com.socialmedia.app.repository.EventReviewRepository;
 import com.socialmedia.app.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -27,7 +30,9 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final EventParticipantRepository eventParticipantRepository;
+    private final EventReviewRepository eventReviewRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Transactional
     public EventResponse createEvent(EventCreateRequest request, String username) {
@@ -46,7 +51,7 @@ public class EventService {
                 .collegeName(request.getCollegeName())
                 .dressCode(request.getDressCode())
                 .targetAudience(request.getTargetAudience())
-                .isActive(true)
+                .status(EventStatus.ACTIVE)
                 .organizer(organizer)
                 .mediaFiles(request.getMediaFiles() != null ? request.getMediaFiles() : List.of())
                 .build();
@@ -88,6 +93,13 @@ public class EventService {
         participant.setRsvpStatus(rsvpStatus);
         EventParticipant savedParticipant = eventParticipantRepository.save(participant);
 
+        if (rsvpStatus == RSVPStatus.GOING && !event.getOrganizer().getId().equals(user.getId())) {
+            notificationService.createNotification(
+                    event.getOrganizer(), user, NotificationType.EVENT_RSVP, event.getId(),
+                    user.getUsername() + " RSVP'd to your event: " + event.getTitle()
+            );
+        }
+
         return mapToParticipantResponse(savedParticipant);
     }
 
@@ -124,17 +136,31 @@ public class EventService {
     }
 
     @Transactional
-    public EventResponse toggleEventStatus(Long eventId, String username, boolean isActive) {
+    public EventResponse endEvent(Long eventId, String username) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResourceNotFoundException("Event not found id: " + eventId));
 
         if (!event.getOrganizer().getUsername().equals(username)) {
-            throw new IllegalStateException("Only the event host can modify the event status.");
+            throw new IllegalStateException("Only the event host can end the event.");
         }
 
-        event.setIsActive(isActive);
+        event.setStatus(EventStatus.ENDED);
         Event savedEvent = eventRepository.save(event);
         return mapToEventResponse(savedEvent);
+    }
+
+    @Transactional
+    public void deleteEvent(Long eventId, String username) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found id: " + eventId));
+
+        if (!event.getOrganizer().getUsername().equals(username)) {
+            throw new IllegalStateException("Only the event host can delete this event.");
+        }
+
+        eventReviewRepository.deleteByEventId(eventId);
+        eventParticipantRepository.deleteByEventId(eventId);
+        eventRepository.delete(event);
     }
 
     private EventResponse mapToEventResponse(Event event) {
@@ -153,7 +179,7 @@ public class EventService {
                 .collegeName(event.getCollegeName())
                 .dressCode(event.getDressCode())
                 .targetAudience(event.getTargetAudience())
-                .isActive(event.getIsActive())
+                .status(event.getStatus() != null ? event.getStatus().name() : EventStatus.ACTIVE.name())
                 .organizer(mapToUserResponse(event.getOrganizer()))
                 .mediaFiles(event.getMediaFiles())
                 .createdAt(event.getCreatedAt())

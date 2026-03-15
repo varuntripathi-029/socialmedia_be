@@ -31,14 +31,23 @@ public class PostService {
     @Transactional
     public PostResponse createPost(CreatePostRequest request) {
         User currentUser = userService.getCurrentUser();
+if (request.getImageUrl() == null || request.getImageUrl().isBlank()) {
+    throw new RuntimeException("Post must contain an image");
+}
 
-        Post post = Post.builder()
-                .user(currentUser)
-                .imageUrl(request.getImageUrl())
-                .caption(request.getCaption())
-                .eventLocation(request.getEventLocation())
-                .eventDate(request.getEventDate() != null ? java.time.LocalDateTime.parse(request.getEventDate()) : null)
-                .build();
+if (request.getImageUrl() == null || request.getImageUrl().isBlank()) {
+    throw new RuntimeException("Image is required to create a post");
+}
+
+Post post = Post.builder()
+        .user(currentUser)
+        .imageUrl(request.getImageUrl())
+        .caption(request.getCaption())
+        .eventLocation(request.getEventLocation())
+        .eventDate(request.getEventDate() != null
+                ? java.time.LocalDateTime.parse(request.getEventDate())
+                : null)
+        .build();
 
         Post savedPost = postRepository.save(post);
         return mapToPostResponse(savedPost, currentUser.getId());

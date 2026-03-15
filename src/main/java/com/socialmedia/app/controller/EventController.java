@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.socialmedia.app.dto.request.EventCreateRequest;
+import com.socialmedia.app.dto.response.ApiResponse;
 import com.socialmedia.app.dto.response.EventParticipantResponse;
 import com.socialmedia.app.dto.response.EventResponse;
 import com.socialmedia.app.model.RSVPStatus;
@@ -70,18 +72,30 @@ public class EventController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse> deleteEvent(
+            @PathVariable Long id,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        eventService.deleteEvent(id, username);
+        return ResponseEntity.ok(ApiResponse.builder()
+                .success(true)
+                .message("Event deleted successfully")
+                .build());
+    }
+
     @GetMapping("/{id}/participants")
     public ResponseEntity<List<EventParticipantResponse>> getEventParticipants(@PathVariable Long id) {
         return ResponseEntity.ok(eventService.getEventParticipants(id));
     }
 
-    @PutMapping("/{id}/status")
-    public ResponseEntity<EventResponse> toggleEventStatus(
+    @PutMapping("/{id}/end")
+    public ResponseEntity<EventResponse> endEvent(
             @PathVariable Long id,
-            @RequestParam boolean isActive,
             Authentication authentication
     ) {
         String username = authentication.getName();
-        return ResponseEntity.ok(eventService.toggleEventStatus(id, username, isActive));
+        return ResponseEntity.ok(eventService.endEvent(id, username));
     }
 }

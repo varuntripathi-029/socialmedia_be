@@ -10,6 +10,8 @@ import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -68,8 +70,13 @@ public class Event {
     private String targetAudience;
 
     @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
     @Builder.Default
-    private Boolean isActive = true;
+    private EventStatus status = EventStatus.ACTIVE;
+
+    @Column(nullable = false)
+@Builder.Default
+private Boolean isActive = true;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organizer_id", nullable = false)

@@ -24,4 +24,7 @@ public class PostResponse {
     private LocalDateTime eventDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    @Builder.Default
+    private String type = "POST";
 }

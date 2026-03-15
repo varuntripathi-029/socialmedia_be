@@ -1,20 +1,23 @@
 package com.socialmedia.app.service;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.socialmedia.app.dto.request.CreateCommentRequest;
 import com.socialmedia.app.dto.response.CommentResponse;
 import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Comment;
+import com.socialmedia.app.model.NotificationType;
 import com.socialmedia.app.model.Post;
 import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.CommentRepository;
 import com.socialmedia.app.repository.PostRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +26,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private final UserService userService;
+    private final NotificationService notificationService;
 
     @Transactional
     public CommentResponse createComment(Long postId, CreateCommentRequest request) {
@@ -37,6 +41,12 @@ public class CommentService {
                 .build();
 
         Comment savedComment = commentRepository.save(comment);
+
+        notificationService.createNotification(
+                post.getUser(), currentUser, NotificationType.POST_COMMENT, post.getId(),
+                currentUser.getUsername() + " commented on your post."
+        );
+
         return mapToCommentResponse(savedComment);
     }
 

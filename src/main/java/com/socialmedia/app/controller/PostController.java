@@ -64,7 +64,7 @@ public class PostController {
         return ResponseEntity.ok(postService.getUserPosts(userId));
     }
 
-    @GetMapping("/home")
+    @GetMapping("/feed")
     public ResponseEntity<List<PostResponse>> getHomeFeed() {
         return ResponseEntity.ok(postService.getHomeFeed());
     }

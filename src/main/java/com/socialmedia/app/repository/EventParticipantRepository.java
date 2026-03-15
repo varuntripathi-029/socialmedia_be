@@ -19,4 +19,6 @@ public interface EventParticipantRepository extends JpaRepository<EventParticipa
     int countByEventIdAndRsvpStatus(Long eventId, RSVPStatus rsvpStatus);
 
     boolean existsByEventIdAndUserId(Long eventId, Long userId);
+
+    void deleteByEventId(Long eventId);
 }

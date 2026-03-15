@@ -12,6 +12,7 @@ import com.socialmedia.app.dto.response.SearchResultResponse;
 import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.model.Event;
 import com.socialmedia.app.model.Post;
+import com.socialmedia.app.model.EventStatus;
 import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.EventRepository;
 import com.socialmedia.app.repository.PostRepository;
@@ -74,7 +75,7 @@ public class SearchService {
                 .collegeName(event.getCollegeName())
                 .dressCode(event.getDressCode())
                 .targetAudience(event.getTargetAudience())
-                .isActive(event.getIsActive())
+                .status(event.getStatus() != null ? event.getStatus().name() : EventStatus.ACTIVE.name())
                 .organizer(mapToUserResponse(event.getOrganizer()))
                 .mediaFiles(event.getMediaFiles())
                 .createdAt(event.getCreatedAt())

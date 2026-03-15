@@ -16,4 +16,6 @@ public interface EventReviewRepository extends JpaRepository<EventReview, Long> 
     Optional<EventReview> findByEventIdAndReviewerId(Long eventId, Long reviewerId);
 
     boolean existsByEventIdAndReviewerId(Long eventId, Long reviewerId);
+
+    void deleteByEventId(Long eventId);
 }

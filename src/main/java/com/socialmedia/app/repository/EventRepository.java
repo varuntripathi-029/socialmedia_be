@@ -11,6 +11,8 @@ import com.socialmedia.app.model.Event;
 public interface EventRepository extends JpaRepository<Event, Long> {
     List<Event> findAllByOrderByStartTimeAsc();
 
+    List<Event> findByOrganizerIdOrderByCreatedAtDesc(Long organizerId);
+
     @org.springframework.data.jpa.repository.Query("SELECT e FROM Event e WHERE " +
             "LOWER(e.title) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "LOWER(e.description) LIKE LOWER(CONCAT('%', :query, '%')) OR " +

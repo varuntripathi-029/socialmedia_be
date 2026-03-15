@@ -58,10 +58,6 @@ public class AuthController {
             return ResponseEntity.badRequest().build(); // prevents unwanted inserts
         }
 
-        if (request.getUsername() == null || request.getUsername().isBlank()) {
-            return ResponseEntity.badRequest().build(); // must provide username for potentially new accounts
-        }
-
         var payload = googleAuthService.verifyToken(request.getIdToken());
 
         if (payload == null) {
@@ -80,18 +76,41 @@ public class AuthController {
             return ResponseEntity.status(400).body(null);
         }
 
+        var existingUserOpt = userRepository.findByEmail(email);
+
+        if (existingUserOpt.isPresent()) {
+            // Existing user - log them in directly
+            User user = existingUserOpt.get();
+            var userDetails = userDetailsService.loadUserByUsername(user.getUsername());
+            String token = jwtService.generateToken(userDetails);
+
+            UserResponse userResponse = UserResponse.builder()
+                    .id(user.getId())
+                    .username(user.getUsername())
+                    .email(user.getEmail())
+                    .fullName(user.getFullName())
+                    .build();
+
+            return ResponseEntity.ok(new AuthResponse(token, userResponse));
+        }
+
+        // New User
+        if (request.getUsername() == null || request.getUsername().isBlank()) {
+            // We need a username to complete registration
+            return ResponseEntity.ok(AuthResponse.justNeedsUsername());
+        }
+
         // if email isn't in DB, they are a new user. check if username they asked for is taken
-        if (userRepository.findByEmail(email).isEmpty() && userRepository.existsByUsername(request.getUsername())) {
+        if (userRepository.existsByUsername(request.getUsername())) {
             return ResponseEntity.status(409).build(); // Conflict - Username taken
         }
 
-        User user = userRepository.findByEmail(email)
-                .orElseGet(() -> userRepository.save(User.builder()
+        User user = userRepository.save(User.builder()
                 .email(email)
                 .username(request.getUsername())
                 .fullName(name)
                 .password("GOOGLE_AUTH")
-                .build()));
+                .build());
 
         var userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         String token = jwtService.generateToken(userDetails);

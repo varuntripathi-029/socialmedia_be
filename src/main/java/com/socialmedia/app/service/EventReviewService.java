@@ -12,7 +12,10 @@ import com.socialmedia.app.dto.response.UserResponse;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Event;
 import com.socialmedia.app.model.EventReview;
+import com.socialmedia.app.model.EventStatus;
+import com.socialmedia.app.model.NotificationType;
 import com.socialmedia.app.model.User;
+import com.socialmedia.app.repository.EventParticipantRepository;
 import com.socialmedia.app.repository.EventRepository;
 import com.socialmedia.app.repository.EventReviewRepository;
 import com.socialmedia.app.repository.UserRepository;
@@ -24,8 +27,10 @@ import lombok.RequiredArgsConstructor;
 public class EventReviewService {
 
     private final EventReviewRepository eventReviewRepository;
+    private final EventParticipantRepository eventParticipantRepository;
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Transactional
     public EventReviewResponse submitReview(Long eventId, String username, EventReviewRequest request) {
@@ -35,8 +40,16 @@ public class EventReviewService {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResourceNotFoundException("Event not found id: " + eventId));
 
-        if (event.getIsActive()) {
+        if (EventStatus.ACTIVE.equals(event.getStatus())) {
             throw new IllegalStateException("Cannot review an active event. Wait for it to end.");
+        }
+
+        if (event.getOrganizer().getId().equals(reviewer.getId())) {
+            throw new IllegalStateException("You cannot review your own event.");
+        }
+
+        if (!eventParticipantRepository.existsByEventIdAndUserId(eventId, reviewer.getId())) {
+            throw new IllegalStateException("Only attendees can review this event.");
         }
 
         if (eventReviewRepository.existsByEventIdAndReviewerId(eventId, reviewer.getId())) {
@@ -62,6 +75,11 @@ public class EventReviewService {
         host.setHostRating(newRating);
         host.setRatingCount(currentCount + 1);
         userRepository.save(host);
+
+        notificationService.createNotification(
+                host, reviewer, NotificationType.EVENT_REVIEW, event.getId(),
+                reviewer.getUsername() + " reviewed your event: " + event.getTitle()
+        );
 
         return mapToReviewResponse(savedReview);
     }

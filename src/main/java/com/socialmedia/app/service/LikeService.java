@@ -1,17 +1,20 @@
 package com.socialmedia.app.service;
 
+import java.util.Optional;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.socialmedia.app.exception.BadRequestException;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Like;
+import com.socialmedia.app.model.NotificationType;
 import com.socialmedia.app.model.Post;
 import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.LikeRepository;
 import com.socialmedia.app.repository.PostRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Optional;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +23,8 @@ public class LikeService {
     private final LikeRepository likeRepository;
     private final PostRepository postRepository;
     private final UserService userService;
+    private final NotificationService notificationService;
+
     public boolean toggleLike(User user, Post post) {
         Optional<Like> existing = likeRepository.findByUserAndPost(user, post);
         if (existing.isPresent()) {
@@ -28,6 +33,12 @@ public class LikeService {
         } else {
             Like like = Like.builder().user(user).post(post).build();
             likeRepository.save(like);
+            
+            notificationService.createNotification(
+                post.getUser(), user, NotificationType.POST_LIKE, post.getId(),
+                user.getUsername() + " liked your post."
+            );
+
             return true;
         }
     }
@@ -49,6 +60,11 @@ public class LikeService {
                 .build();
 
         likeRepository.save(like);
+
+        notificationService.createNotification(
+            post.getUser(), currentUser, NotificationType.POST_LIKE, post.getId(),
+            currentUser.getUsername() + " liked your post."
+        );
     }
 
     @Transactional

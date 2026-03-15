@@ -46,6 +46,33 @@ public class FollowController {
         return ResponseEntity.ok(ApiResponse.builder().success(true).message("User unfollowed successfully").build());
     }
 
+    @PostMapping("/accept/{requestId}")
+    public ResponseEntity<ApiResponse> acceptFollowRequest(@PathVariable Long requestId, Authentication auth) {
+        User currentUser = userRepository.findByUsername(auth.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        followService.acceptFollowRequest(requestId, currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.builder().success(true).message("Follow request accepted").build());
+    }
+
+    @PostMapping("/reject/{requestId}")
+    public ResponseEntity<ApiResponse> rejectFollowRequest(@PathVariable Long requestId, Authentication auth) {
+        User currentUser = userRepository.findByUsername(auth.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        followService.rejectFollowRequest(requestId, currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.builder().success(true).message("Follow request rejected").build());
+    }
+
+    @PostMapping("/request/{userId}")
+    public ResponseEntity<ApiResponse> requestFollow(@PathVariable Long userId, Authentication auth) {
+        User currentUser = userRepository.findByUsername(auth.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        followService.requestFollow(currentUser.getId(), userId);
+        return ResponseEntity.ok(ApiResponse.builder().success(true).message("Follow requested").build());
+    }
+
     @GetMapping("/{userId}/followers")
     public ResponseEntity<List<UserResponse>> getFollowers(@PathVariable Long userId) {
         var followers = followService.getFollowers(userId).stream()
