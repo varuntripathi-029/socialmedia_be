@@ -41,7 +41,6 @@ application-local.properties
 
 # Optional: Specific to your project
 # Prevent leaking secrets (keep only application.properties template)
-src/main/resources/application.properties
 src/main/resources/application-secret.properties
 
 # -------------------------
