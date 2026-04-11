@@ -123,3 +123,4 @@ Set `SPRING_PROFILES_ACTIVE=prod` to enable production settings (no verbose SQL,
 3. Render auto-assigns `PORT` — the app picks it up via `server.port=${PORT:8080}`
 
 > **Note:** For persistent file uploads, use Render's Persistent Disk or an external storage (S3, Cloudinary).
+
