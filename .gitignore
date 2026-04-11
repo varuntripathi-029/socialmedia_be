@@ -35,8 +35,8 @@ Thumbs.db
 .env
 *.env
 .env.*
+!.env.example
 application-dev.properties
-application-prod.properties
 application-local.properties
 
 # Optional: Specific to your project

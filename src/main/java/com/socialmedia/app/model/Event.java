@@ -75,8 +75,8 @@ public class Event {
     private EventStatus status = EventStatus.ACTIVE;
 
     @Column(nullable = false)
-@Builder.Default
-private Boolean isActive = true;
+    @Builder.Default
+    private Boolean isActive = true;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organizer_id", nullable = false)

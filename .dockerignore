@@ -1,0 +1,38 @@
+# Build output
+target/
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Environment / Secrets
+.env
+*.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Node / Frontend
+node_modules/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Uploads (runtime data, not part of image)
+uploads/
+
+# Docs
+README.md
+HELP.md
