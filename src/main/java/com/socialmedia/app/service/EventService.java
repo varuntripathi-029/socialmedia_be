@@ -21,11 +21,18 @@ import com.socialmedia.app.repository.EventParticipantRepository;
 import com.socialmedia.app.repository.EventRepository;
 import com.socialmedia.app.repository.EventReviewRepository;
 import com.socialmedia.app.repository.UserRepository;
-
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
+import com.socialmedia.app.exception.BadRequestException;
+import java.util.Set;
+import java.util.Objects;
+import java.util.Map;
+import java.util.Collections;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class EventService {
 
     private final EventRepository eventRepository;
@@ -33,11 +40,34 @@ public class EventService {
     private final EventReviewRepository eventReviewRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    private static final String EVENTS_FEED_CACHE_KEY = "events:feed:all";
+    private static final String TRENDING_EVENTS_KEY = "trending:events";
+    private static final long EVENTS_CACHE_TTL_MINUTES = 5;
+
+    /**
+     * Safely evicts the events feed cache from Redis.
+     * Keeps execution safe if Redis connection is unavailable.
+     */
+    private void evictEventsCache() {
+        try {
+            redisTemplate.delete(EVENTS_FEED_CACHE_KEY);
+            log.info("Evicted events feed cache: {}", EVENTS_FEED_CACHE_KEY);
+        } catch (Exception e) {
+            log.warn("Failed to evict events feed cache from Redis (Redis down/timeout).", e);
+        }
+    }
 
     @Transactional
     public EventResponse createEvent(EventCreateRequest request, String username) {
         User organizer = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+
+        // Date Validation: End time must be after start time
+        if (request.getEndTime().isBefore(request.getStartTime()) || request.getEndTime().isEqual(request.getStartTime())) {
+            throw new BadRequestException("End time must be after start time");
+        }
 
         Event event = Event.builder()
                 .title(request.getTitle())
@@ -66,6 +96,17 @@ public class EventService {
                 .build();
         eventParticipantRepository.save(participant);
 
+        // Initialize trending events score
+        try {
+            redisTemplate.opsForZSet().incrementScore(TRENDING_EVENTS_KEY, savedEvent.getId().toString(), 1.0);
+            log.info("Initialized trending score for event {}", savedEvent.getId());
+        } catch (Exception e) {
+            log.warn("Failed to initialize trending score in Redis for event {}", savedEvent.getId(), e);
+        }
+
+        // Evict events cache on creation
+        evictEventsCache();
+
         return mapToEventResponse(savedEvent);
     }
 
@@ -91,16 +132,36 @@ public class EventService {
                         .build());
 
         participant.setRsvpStatus(rsvpStatus);
-        EventParticipant savedParticipant = eventParticipantRepository.save(participant);
 
-        if (rsvpStatus == RSVPStatus.GOING && !event.getOrganizer().getId().equals(user.getId())) {
-            notificationService.createNotification(
-                    event.getOrganizer(), user, NotificationType.EVENT_RSVP, event.getId(),
-                    user.getUsername() + " RSVP'd to your event: " + event.getTitle()
-            );
+        // Robust prevention of concurrent duplicate joins using Database Unique Constraint
+        try {
+            EventParticipant savedParticipant = eventParticipantRepository.saveAndFlush(participant);
+            
+            if (rsvpStatus == RSVPStatus.GOING && !event.getOrganizer().getId().equals(user.getId())) {
+                notificationService.createNotification(
+                        event.getOrganizer(), user, NotificationType.EVENT_RSVP, event.getId(),
+                        user.getUsername() + " RSVP'd to your event: " + event.getTitle()
+                );
+            }
+
+            // Evict events cache on RSVP change
+            evictEventsCache();
+
+            // Increment trending events score
+            if (rsvpStatus == RSVPStatus.GOING) {
+                try {
+                    redisTemplate.opsForZSet().incrementScore(TRENDING_EVENTS_KEY, eventId.toString(), 2.0);
+                    log.info("Incremented trending score for event {} due to user join", eventId);
+                } catch (Exception re) {
+                    log.warn("Failed to update trending score in Redis for event {}", eventId, re);
+                }
+            }
+
+            return mapToParticipantResponse(savedParticipant);
+        } catch (org.springframework.dao.DataIntegrityViolationException dive) {
+            log.warn("Concurrent duplicate join attempt by user {} on event {}", username, eventId);
+            throw new IllegalStateException("You have already joined this event.");
         }
-
-        return mapToParticipantResponse(savedParticipant);
     }
 
     @Transactional
@@ -112,13 +173,48 @@ public class EventService {
                 .orElseThrow(() -> new ResourceNotFoundException("Participation not found"));
 
         eventParticipantRepository.delete(participant);
+
+        // Evict events cache when leaving an event
+        evictEventsCache();
+
+        // Decrement trending events score or adjust it when a user leaves an event
+        try {
+            redisTemplate.opsForZSet().incrementScore(TRENDING_EVENTS_KEY, eventId.toString(), -2.0);
+            log.info("Decremented trending score for event {} due to user leave", eventId);
+        } catch (Exception e) {
+            log.warn("Failed to decrement trending score in Redis", e);
+        }
     }
 
     @Transactional(readOnly = true)
     public List<EventResponse> getAllEvents() {
-        return eventRepository.findAllByOrderByStartTimeAsc().stream()
+        try {
+            Object cachedFeed = redisTemplate.opsForValue().get(EVENTS_FEED_CACHE_KEY);
+            if (cachedFeed != null) {
+                log.info("Cache HIT for events feed: {}", EVENTS_FEED_CACHE_KEY);
+                return (List<EventResponse>) cachedFeed;
+            }
+            log.info("Cache MISS for events feed: {}", EVENTS_FEED_CACHE_KEY);
+        } catch (Exception e) {
+            log.warn("Failed to query events feed cache from Redis. Falling back to DB query.", e);
+        }
+
+        List<EventResponse> events = eventRepository.findAllByOrderByStartTimeAsc().stream()
                 .map(this::mapToEventResponse)
                 .collect(Collectors.toList());
+
+        try {
+            redisTemplate.opsForValue().set(
+                    EVENTS_FEED_CACHE_KEY,
+                    events,
+                    java.time.Duration.ofMinutes(EVENTS_CACHE_TTL_MINUTES)
+            );
+            log.info("Cached events feed in Redis with TTL of {} minutes", EVENTS_CACHE_TTL_MINUTES);
+        } catch (Exception e) {
+            log.warn("Failed to store events feed in Redis cache.", e);
+        }
+
+        return events;
     }
 
     @Transactional(readOnly = true)
@@ -146,6 +242,10 @@ public class EventService {
 
         event.setStatus(EventStatus.ENDED);
         Event savedEvent = eventRepository.save(event);
+
+        // Evict events cache when ending an event
+        evictEventsCache();
+
         return mapToEventResponse(savedEvent);
     }
 
@@ -161,6 +261,68 @@ public class EventService {
         eventReviewRepository.deleteByEventId(eventId);
         eventParticipantRepository.deleteByEventId(eventId);
         eventRepository.delete(event);
+
+        // Remove from trending events sorted set in Redis
+        try {
+            redisTemplate.opsForZSet().remove(TRENDING_EVENTS_KEY, eventId.toString());
+            log.info("Removed event {} from trending events in Redis", eventId);
+        } catch (Exception e) {
+            log.warn("Failed to remove event {} from trending events in Redis", eventId, e);
+        }
+
+        // Evict events cache on deletion
+        evictEventsCache();
+    }
+
+    /**
+     * Resolves the top 10 trending events from Redis using a Sorted Set.
+     * Offers high-availability through graceful fallback to SQL ranking.
+     */
+    @Transactional(readOnly = true)
+    public List<EventResponse> getTrendingEvents() {
+        Set<Object> topIds = null;
+        try {
+            topIds = redisTemplate.opsForZSet().reverseRange(TRENDING_EVENTS_KEY, 0, 9);
+        } catch (Exception e) {
+            log.warn("Failed to retrieve trending events from Redis. Falling back to DB logic.", e);
+        }
+
+        // Fallback: Fetch DB events sorted by active participant count if Redis fails or is empty
+        if (topIds == null || topIds.isEmpty()) {
+            log.info("Trending cache empty or Redis offline. Fetching events sorted by active participant count.");
+            return eventRepository.findAll().stream()
+                    .map(this::mapToEventResponse)
+                    .sorted((e1, e2) -> Integer.compare(e2.getCurrentParticipantsCount(), e1.getCurrentParticipantsCount()))
+                    .limit(10)
+                    .collect(Collectors.toList());
+        }
+
+        List<Long> orderedIds = topIds.stream()
+                .map(obj -> {
+                    try {
+                        return Long.parseLong(obj.toString());
+                    } catch (NumberFormatException nfe) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (orderedIds.isEmpty()) {
+            return List.of();
+        }
+
+        // Fetch corresponding events from PostgreSQL
+        List<Event> events = eventRepository.findAllById(orderedIds);
+        Map<Long, Event> eventMap = events.stream()
+                .collect(Collectors.toMap(Event::getId, e -> e));
+
+        // Preserve original Redis ZSet rank sorting in memory
+        return orderedIds.stream()
+                .map(eventMap::get)
+                .filter(Objects::nonNull)
+                .map(this::mapToEventResponse)
+                .collect(Collectors.toList());
     }
 
     private EventResponse mapToEventResponse(Event event) {

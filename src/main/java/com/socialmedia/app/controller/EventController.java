@@ -47,6 +47,11 @@ public class EventController {
         return ResponseEntity.ok(eventService.getAllEvents());
     }
 
+    @GetMapping("/trending")
+    public ResponseEntity<List<EventResponse>> getTrendingEvents() {
+        return ResponseEntity.ok(eventService.getTrendingEvents());
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<EventResponse> getEventById(@PathVariable Long id) {
         return ResponseEntity.ok(eventService.getEventById(id));
