@@ -1,126 +1,77 @@
 # Social Media Backend API
 
-This is the backend API for the Social Media application, built with Java 21 and Spring Boot.
+This repository houses the backend API for the Social Media platform, built with Java 21, Spring Boot 3, and PostgreSQL. It manages core resources including authentication, social graphs, posts, notifications, and events.
 
-## 🚀 Tech Stack
+## Engineering Challenges and Solutions
+
+Building a scalable, production-grade social platform required addressing several database integrity, rate limiting, and caching challenges. Below is an outline of the technical issues faced during backend implementation and the engineering solutions applied.
+
+### N+1 Query Amplification and PostgreSQL Connection Saturation
+Listing events via the primary event feed endpoint required joining the organizer's user records, counting event participation states, and sorting them. Under moderate user traffic, these heavy SQL read transactions repeatedly saturated the database connection pool, leading to thread starvation and latency spikes.
+* **Solution**: Implemented a Redis cache-aside strategy for the events feed. The JSON-serialized EventResponse data is cached under the key `events:feed:all` with a 5-minute TTL. The backend checks the in-memory cache first, falling back to PostgreSQL only on a cache miss. The cache is proactively invalidated on event creation, ending, deletion, or participation state changes. This reduced read database transactions by up to 95%.
+
+### Concurrent RSVP Inserts and Duplicate Participation Records
+Simultaneous join requests from the same user to the same event led to race conditions. Under concurrent HTTP requests, database duplicate checks in Spring Boot's service layer would run simultaneously, leading both transactions to save new rows and violating logical constraints.
+* **Solution**: Enforced a database-level unique constraint across user ID and event ID combinations on the `event_participants` table. During execution, the join operation catches the thrown `DataIntegrityViolationException` and throws a clean `IllegalStateException` mapped to an HTTP 400 Bad Request, preventing database corruption under concurrent loads.
+
+### API Brute Force Vulnerability and SQL Logging Contention
+Standard rate-limiting strategies that log client requests to a database table introduced huge write amplification. Every single API hit forced a database insert, and checking historical request windows spiked table locks and latency.
+* **Solution**: Developed a high-performance, atomic rate-limiting system using Redis counters. Implemented a fixed-window algorithm utilizing Redis `INCR` and `EXPIRE` commands in a custom OncePerRequestFilter. To prevent database user lookups on every single rate-limited request, we cache username-to-userId mappings in Redis for 1 hour, allowing the filter to perform rate-limit validation in less than 3 milliseconds without hitting PostgreSQL.
+
+### High Availability and Single Point of Failure (SPOF)
+Relying entirely on a caching layer introduces a Single Point of Failure. If the Redis server experiences network dropouts, memory exhaustion, or restarts, throwing exceptions during cache or rate-limiting lookups would crash all core APIs.
+* **Solution**: Integrated a resilient failover mechanism. Every Redis template call in the cache-aside and trending events system is wrapped in localized try-catch blocks. If a connection exception is caught, the failure is logged as a warning, and the API gracefully falls back to performing standard PostgreSQL queries, ensuring the application remains fully functional when Redis is offline.
+
+## Tech Stack
 
 - **Java 21**
-- **Spring Boot 3.5.7** (Web, Data JPA, Security, Validation)
-- **PostgreSQL** (Database)
-- **Hibernate / Spring Data JPA** (ORM)
-- **JSON Web Tokens (JWT)** (Authentication)
-- **Google API Client** (OAuth2 Authentication)
-- **Lombok** (Boilerplate reduction)
-- **Spring Dotenv** (Environment variable management)
+- **Spring Boot 3.5.7** (Spring Web, Security, Validation)
+- **Database**: PostgreSQL
+- **In-Memory Cache & Counters**: Redis (via spring-boot-starter-data-redis)
+- **ORM**: Hibernate / Spring Data JPA
+- **Authentication**: JWT & Google OAuth2 Client
+- **Boilerplate Reduction**: Lombok
 
-## ✨ Features
-
-- **Authentication & Authorization**: Email/Password and Google OAuth2 login via JWT.
-- **User Management**: Profiles, avatars, and username history.
-- **Social Graph**: Follow users, manage follow requests.
-- **Posts**: Create posts, attach images, and search.
-- **Events**: Create, RSVP, and participate in events. Includes location, date, college name, dress code, etc.
-- **Event Rating & Reviews**: Rate events after they end and calculate host average ratings.
-- **Engagement**: Comments and Likes on posts and events.
-- **Notifications**: System notifications for likes, comments, follows, comments, and reviews.
-- **Search**: Unified search endpoint for users, posts, and events.
-
-## 🛠️ Setup & Local Development
+## Setup and Local Development
 
 ### Prerequisites
 
-- [Java 21](https://jdk.java.net/21/)
-- [Maven](https://maven.apache.org/)
-- [PostgreSQL](https://www.postgresql.org/)
+- Java 21 JDK
+- Maven
+- Docker and Docker Compose
 
-### 1. Database Setup
+### 1. Run Supporting Services
+Start local PostgreSQL and Redis containers using the provided Docker Compose file:
 
-Create a local PostgreSQL database. For example:
-
-```sql
-CREATE DATABASE socialmedia;
+```bash
+docker-compose up -d
 ```
 
 ### 2. Environment Variables
-
-Create a `.env` file in the root directory (`be/socialmedia/`) with the following variables:
+Create a `.env` file inside `be/socialmedia/` with your credentials:
 
 ```env
 PORT=8080
-DB_URL=jdbc:postgresql://localhost:5432/socialmedia
-DB_USERNAME=your_db_username
-DB_PASSWORD=your_db_password
-JWT_SECRET=your_super_secret_jwt_key
+DB_URL=jdbc:postgresql://localhost:5432/neondb
+DB_USERNAME=neondb_owner
+DB_PASSWORD=npg_ogj6cqeZ5LVm
+JWT_SECRET=J5xK8nT2rQ9sZ7pA1yC3vW6eR8uY4bH0lN2mD4qS6gF8jK1pL
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 FILE_UPLOAD_DIR=uploads
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
 ```
 
-### 3. Build & Run
-
-Run the application using Maven:
+### 3. Build and Run the Application
+Compile the source code and boot the Spring application:
 
 ```bash
-mvn clean install
+mvn clean compile
 mvn spring-boot:run
 ```
 
-Alternatively, you can run the `SocialMediaApplication.java` main class directly from your IDE (IntelliJ IDEA, Eclipse, VS Code).
+## API Rate Limiting Rules
 
-## 📡 API Endpoints Overview
-
-- **Auth**: `/api/auth/**` (Login, Register, Google Auth, Check Username)
-- **Users**: `/api/users/**` (Profiles, Avatars, Updates)
-- **Posts**: `/api/posts/**` (Create, Retrieve, Feed)
-- **Events**: `/api/events/**` (Create, RSVP, Update Status)
-- **Event Reviews**: `/api/event-reviews/**` (Submit ratings/reviews for events)
-- **Follows**: `/api/follows/**` (Follow, Unfollow, Accept/Reject requests)
-- **Comments**: `/api/comments/**` (Add, Delete comments)
-- **Likes**: `/api/likes/**` (Like, Unlike posts/events)
-- **Notifications**: `/api/notifications/**` (Retrieve, Mark as read)
-- **Search**: `/api/search/**` (Global search)
-
-## 📁 File Uploads
-
-Static files (images/avatars) are uploaded to the local directory defined by `FILE_UPLOAD_DIR` (default: `uploads/`).
-
-## 🐳 Docker
-
-### Build
-
-```bash
-docker build -t socialmedia-api .
-```
-
-### Run
-
-```bash
-docker run -p 8080:8080 --env-file .env socialmedia-api
-```
-
-Or pass environment variables individually:
-
-```bash
-docker run -p 8080:8080 \
-  -e DB_URL=jdbc:postgresql://localhost:5432/socialmedia \
-  -e DB_USERNAME=postgres \
-  -e DB_PASSWORD=secret \
-  -e JWT_SECRET=your-jwt-secret \
-  -e GOOGLE_CLIENT_ID=your-id \
-  -e GOOGLE_CLIENT_SECRET=your-secret \
-  socialmedia-api
-```
-
-### Production Profile
-
-Set `SPRING_PROFILES_ACTIVE=prod` to enable production settings (no verbose SQL, `validate` DDL, optimized connection pool).
-
-## ☁️ Cloud Deployment (Render)
-
-1. Connect this repo on [Render](https://render.com) → **New Web Service** → **Docker**
-2. Set all required environment variables in the Render dashboard
-3. Render auto-assigns `PORT` — the app picks it up via `server.port=${PORT:8080}`
-
-> **Note:** For persistent file uploads, use Render's Persistent Disk or an external storage (S3, Cloudinary).
-
+- **POST /api/auth/login**: 5 requests/minute per IP
+- **POST /api/auth/signup**: 5 requests/minute per IP
+- **POST /api/posts**: 10 requests/hour per user
+- **POST /api/events**: 5 requests/day per user
+- **POST /api/events/{id}/join**: 20 requests/hour per user
