@@ -47,20 +47,7 @@ Start local PostgreSQL and Redis containers using the provided Docker Compose fi
 docker-compose up -d
 ```
 
-### 2. Environment Variables
-Create a `.env` file inside `be/socialmedia/` with your credentials:
-
-```env
-PORT=8080
-DB_URL=jdbc:postgresql://localhost:5432/neondb
-DB_USERNAME=neondb_owner
-DB_PASSWORD=npg_ogj6cqeZ5LVm
-JWT_SECRET=J5xK8nT2rQ9sZ7pA1yC3vW6eR8uY4bH0lN2mD4qS6gF8jK1pL
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
-FILE_UPLOAD_DIR=uploads
-```
-
-### 3. Build and Run the Application
+### 2. Build and Run the Application
 Compile the source code and boot the Spring application:
 
 ```bash
