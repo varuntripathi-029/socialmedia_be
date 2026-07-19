@@ -91,7 +91,6 @@ public class SearchService {
                 .id(user.getId())
                 .username(user.getUsername())
                 .fullName(user.getFullName())
-                .email(user.getEmail())
                 .profileImageUrl(user.getProfileImageUrl())
                 .build();
     }
