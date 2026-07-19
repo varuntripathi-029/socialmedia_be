@@ -78,7 +78,6 @@ public class UserController {
                 .map(f -> UserResponse.builder()
                         .id(f.getFollower().getId())
                         .username(f.getFollower().getUsername())
-                        .email(f.getFollower().getEmail())
                         .fullName(f.getFollower().getFullName())
                         .build())
                 .collect(Collectors.toList()) : java.util.Collections.emptyList();
@@ -87,16 +86,16 @@ public class UserController {
                 .map(f -> UserResponse.builder()
                         .id(f.getFollowing().getId())
                         .username(f.getFollowing().getUsername())
-                        .email(f.getFollowing().getEmail())
                         .fullName(f.getFollowing().getFullName())
                         .build())
                 .collect(Collectors.toList()) : java.util.Collections.emptyList();
 
+        // Email is intentionally omitted here — this endpoint serves any viewer looking up any
+        // username, not just the account owner. Use GET /api/users/me for your own email.
         UserProfileResponse response = UserProfileResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
                 .fullName(user.getFullName())
-                .email(user.getEmail())
                 .bio(user.getBio())
                 .profileImageUrl(user.getProfileImageUrl())
                 .followersCount(followers.size())
@@ -120,7 +119,6 @@ public class UserController {
                 .map(u -> UserResponse.builder()
                         .id(u.getId())
                         .username(u.getUsername())
-                        .email(u.getEmail())
                         .fullName(u.getFullName())
                         .bio(u.getBio())
                         .profileImageUrl(u.getProfileImageUrl())
