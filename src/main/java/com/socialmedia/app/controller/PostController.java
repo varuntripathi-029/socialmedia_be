@@ -50,8 +50,11 @@ public class PostController {
     }
 
     @GetMapping
-    public ResponseEntity<List<PostResponse>> getAllPosts() {
-        return ResponseEntity.ok(postService.getAllPosts());
+    public ResponseEntity<List<PostResponse>> getAllPosts(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(postService.getAllPosts(page, size));
     }
 
     @GetMapping("/{postId}")
@@ -65,13 +68,20 @@ public class PostController {
     }
 
     @GetMapping("/feed")
-    public ResponseEntity<List<PostResponse>> getHomeFeed() {
-        return ResponseEntity.ok(postService.getHomeFeed());
+    public ResponseEntity<List<PostResponse>> getHomeFeed(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(postService.getHomeFeed(page, size));
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<PostResponse>> searchPosts(@RequestParam String tag) {
-        return ResponseEntity.ok(postService.searchPosts(tag));
+    public ResponseEntity<List<PostResponse>> searchPosts(
+            @RequestParam String tag,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(postService.searchPosts(tag, page, size));
     }
 
     @DeleteMapping("/{postId}")
