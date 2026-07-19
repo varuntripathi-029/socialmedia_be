@@ -74,28 +74,57 @@ public class FollowController {
     }
 
     @GetMapping("/{userId}/followers")
-    public ResponseEntity<List<UserResponse>> getFollowers(@PathVariable Long userId) {
-        var followers = followService.getFollowers(userId).stream()
+    public ResponseEntity<List<UserResponse>> getFollowers(@PathVariable Long userId, Authentication auth) {
+        var followers = followService.getFollowers(userId);
+        if (!canViewFollowLists(userId, followers, auth)) {
+            return ResponseEntity.ok(List.of());
+        }
+        var result = followers.stream()
                 .map(f -> UserResponse.builder()
                 .id(f.getFollower().getId())
                 .username(f.getFollower().getUsername())
-                .email(f.getFollower().getEmail())
                 .fullName(f.getFollower().getFullName())
                 .build())
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(followers);
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/{userId}/following")
-    public ResponseEntity<List<UserResponse>> getFollowing(@PathVariable Long userId) {
+    public ResponseEntity<List<UserResponse>> getFollowing(@PathVariable Long userId, Authentication auth) {
+        var followers = followService.getFollowers(userId);
+        if (!canViewFollowLists(userId, followers, auth)) {
+            return ResponseEntity.ok(List.of());
+        }
         var following = followService.getFollowing(userId).stream()
                 .map(f -> UserResponse.builder()
                 .id(f.getFollowing().getId())
                 .username(f.getFollowing().getUsername())
-                .email(f.getFollowing().getEmail())
                 .fullName(f.getFollowing().getFullName())
                 .build())
                 .collect(Collectors.toList());
         return ResponseEntity.ok(following);
+    }
+
+    /**
+     * Mirrors the visibility rule in UserController.getUserProfile: a private account's
+     * follow lists are visible only to the account owner or an accepted follower.
+     */
+    private boolean canViewFollowLists(Long targetUserId, List<com.socialmedia.app.model.Follow> targetFollowers, Authentication auth) {
+        User target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (!target.isPrivate()) {
+            return true;
+        }
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            return false;
+        }
+        User currentUser = userRepository.findByUsername(auth.getName()).orElse(null);
+        if (currentUser == null) {
+            return false;
+        }
+        if (currentUser.getId().equals(targetUserId)) {
+            return true;
+        }
+        return targetFollowers.stream().anyMatch(f -> f.getFollower().getId().equals(currentUser.getId()));
     }
 }
