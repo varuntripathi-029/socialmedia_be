@@ -7,9 +7,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: neondb
-      POSTGRES_USER: neondb_owner
-      POSTGRES_PASSWORD: npg_ogj6cqeZ5LVm
+      POSTGRES_DB: ${LOCAL_POSTGRES_DB:-neondb}
+      POSTGRES_USER: ${LOCAL_POSTGRES_USER:-neondb_owner}
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?set LOCAL_POSTGRES_PASSWORD in your .env file}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: always
