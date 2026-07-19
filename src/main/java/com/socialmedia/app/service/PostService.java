@@ -1,8 +1,14 @@
 package com.socialmedia.app.service;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,11 +21,14 @@ import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.CommentRepository;
 import com.socialmedia.app.repository.LikeRepository;
 import com.socialmedia.app.repository.PostRepository;
+import com.socialmedia.app.util.Constants;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PostService {
 
     private final PostRepository postRepository;
@@ -27,6 +36,9 @@ public class PostService {
     private final CommentRepository commentRepository;
     private final UserService userService;
     private final FollowService followService;
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    private static final long POSTS_FEED_CACHE_TTL_SECONDS = 60;
 
     @Transactional
     public PostResponse createPost(CreatePostRequest request) {
@@ -60,12 +72,29 @@ Post post = Post.builder()
         return mapToPostResponse(post, currentUser.getId());
     }
 
-    public List<PostResponse> getAllPosts() {
+    /**
+     * The global feed is cache-aside like the events feed, but — unlike events — posts are
+     * created often enough that evicting the whole cache on every write would defeat the
+     * point, so this relies on a short TTL instead of active eviction. The cached entries never
+     * carry isLikedByCurrentUser (that's per-viewer, not safe to share across users); it's
+     * overlaid fresh on every request via a single batched query.
+     */
+    public List<PostResponse> getAllPosts(int page, int size) {
         User currentUser = userService.getCurrentUser();
-        List<Post> posts = postRepository.findAllOrderByCreatedAtDesc();
-        return posts.stream()
-                .map(post -> mapToPostResponse(post, currentUser.getId()))
-                .collect(Collectors.toList());
+        int safeSize = Constants.clampPageSize(size);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), safeSize);
+        String cacheKey = "posts:feed:all:p" + pageable.getPageNumber() + ":s" + safeSize;
+
+        List<PostResponse> shared = getCachedOrNull(cacheKey);
+        if (shared == null) {
+            Page<Post> posts = postRepository.findAllByOrderByCreatedAtDesc(pageable);
+            shared = posts.stream()
+                    .map(this::mapToSharedPostResponse)
+                    .collect(Collectors.toList());
+            cachePostsFeed(cacheKey, shared);
+        }
+
+        return overlayLikedStatus(shared, currentUser.getId());
     }
 
     public List<PostResponse> getUserPosts(Long userId) {
@@ -76,7 +105,7 @@ Post post = Post.builder()
                 .collect(Collectors.toList());
     }
 
-    public List<PostResponse> getHomeFeed() {
+    public List<PostResponse> getHomeFeed(int page, int size) {
         User currentUser = userService.getCurrentUser();
         List<Long> followingIds = followService.getFollowing(currentUser.getId()).stream()
                 .map(f -> f.getFollowing().getId())
@@ -86,18 +115,67 @@ Post post = Post.builder()
             return List.of();
         }
 
-        List<Post> posts = postRepository.findByUserIdInOrderByCreatedAtDesc(followingIds);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Constants.clampPageSize(size));
+        Page<Post> posts = postRepository.findByUserIdInOrderByCreatedAtDesc(followingIds, pageable);
         return posts.stream()
                 .map(post -> mapToPostResponse(post, currentUser.getId()))
                 .collect(Collectors.toList());
     }
 
-    public List<PostResponse> searchPosts(String tag) {
+    public List<PostResponse> searchPosts(String tag, int page, int size) {
         User currentUser = userService.getCurrentUser();
-        List<Post> posts = postRepository.searchByTagOrLocation(tag);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Constants.clampPageSize(size));
+        Page<Post> posts = postRepository.searchByTagOrLocation(tag, pageable);
         return posts.stream()
                 .map(post -> mapToPostResponse(post, currentUser.getId()))
                 .collect(Collectors.toList());
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<PostResponse> getCachedOrNull(String cacheKey) {
+        try {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                log.info("Cache HIT for posts feed: {}", cacheKey);
+                return (List<PostResponse>) cached;
+            }
+            log.info("Cache MISS for posts feed: {}", cacheKey);
+        } catch (Exception e) {
+            log.warn("Failed to query posts feed cache from Redis. Falling back to DB query.", e);
+        }
+        return null;
+    }
+
+    private void cachePostsFeed(String cacheKey, List<PostResponse> shared) {
+        try {
+            redisTemplate.opsForValue().set(cacheKey, shared, Duration.ofSeconds(POSTS_FEED_CACHE_TTL_SECONDS));
+        } catch (Exception e) {
+            log.warn("Failed to store posts feed in Redis cache.", e);
+        }
+    }
+
+    /**
+     * Applies the current viewer's like status onto an otherwise-shared, possibly-cached list —
+     * a single indexed query rather than N existsByUserIdAndPostId calls.
+     */
+    private List<PostResponse> overlayLikedStatus(List<PostResponse> shared, Long currentUserId) {
+        List<Long> postIds = shared.stream().map(PostResponse::getId).collect(Collectors.toList());
+        if (postIds.isEmpty()) {
+            return shared;
+        }
+
+        Set<Long> likedIds;
+        try {
+            likedIds = likeRepository.findLikedPostIds(currentUserId, postIds);
+        } catch (Exception e) {
+            log.warn("Failed to resolve liked posts for user {}; defaulting to not-liked.", currentUserId, e);
+            likedIds = Set.of();
+        }
+
+        for (PostResponse response : shared) {
+            response.setIsLikedByCurrentUser(likedIds.contains(response.getId()));
+        }
+        return shared;
     }
 
     @Transactional
@@ -114,9 +192,20 @@ Post post = Post.builder()
     }
 
     private PostResponse mapToPostResponse(Post post, Long currentUserId) {
+        Boolean isLiked = likeRepository.existsByUserIdAndPostId(currentUserId, post.getId());
+        PostResponse response = mapToSharedPostResponse(post);
+        response.setIsLikedByCurrentUser(isLiked);
+        return response;
+    }
+
+    /**
+     * Everything about a post that's the same no matter who's viewing it — safe to cache and
+     * share across users. isLikedByCurrentUser is deliberately left unset; callers must overlay
+     * it per-viewer (see overlayLikedStatus).
+     */
+    private PostResponse mapToSharedPostResponse(Post post) {
         Long likesCount = likeRepository.countByPostId(post.getId());
         Long commentsCount = commentRepository.countByPostId(post.getId());
-        Boolean isLiked = likeRepository.existsByUserIdAndPostId(currentUserId, post.getId());
 
         return PostResponse.builder()
                 .id(post.getId())
@@ -125,7 +214,6 @@ Post post = Post.builder()
                 .caption(post.getCaption())
                 .likesCount(likesCount)
                 .commentsCount(commentsCount)
-                .isLikedByCurrentUser(isLiked)
                 .eventLocation(post.getEventLocation())
                 .eventDate(post.getEventDate())
                 .createdAt(post.getCreatedAt())
