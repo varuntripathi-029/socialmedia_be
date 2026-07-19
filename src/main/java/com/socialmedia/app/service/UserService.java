@@ -260,11 +260,13 @@ public class UserService {
                 .build();
     }
 
+    // Email intentionally omitted — this DTO is also used to render other users' profiles
+    // (getUserProfile/getUserByUsername/searchUsers), not just the account owner's own data.
+    // GET /api/users/me is the endpoint for a user to see their own email.
     private UserResponse mapToUserResponse(User user) {
         return UserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
-                .email(user.getEmail())
                 .fullName(user.getFullName())
                 .bio(user.getBio())
                 .profileImageUrl(user.getProfileImageUrl())
