@@ -57,12 +57,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (matchedRule != null) {
             log.debug("RateLimit rule matched for {} {}. Rule limit: {} per {}", method, path, matchedRule.limit, matchedRule.window);
             
-            // Extract IP Address
+            // Extract IP Address. X-Forwarded-For is appended to by each proxy hop, with the
+            // furthest-right entry being the IP the outermost trusted proxy actually observed.
+            // The app sits behind exactly one trusted proxy (the hosting platform's edge), so we
+            // trust that last entry — never the first, which is fully client-controlled and lets
+            // a client spoof any IP it wants by sending its own X-Forwarded-For header.
             String ip = request.getHeader("X-Forwarded-For");
             if (ip == null || ip.isEmpty()) {
                 ip = request.getRemoteAddr();
             } else {
-                ip = ip.split(",")[0].trim();
+                String[] hops = ip.split(",");
+                ip = hops[hops.length - 1].trim();
             }
 
             // Check security authentication context
