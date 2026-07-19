@@ -2,6 +2,8 @@ package com.socialmedia.app.repository;
 
 import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -21,5 +23,5 @@ public interface EventRepository extends JpaRepository<Event, Long> {
             "LOWER(e.collegeName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "LOWER(e.targetAudience) LIKE LOWER(CONCAT('%', :query, '%')) " +
             "ORDER BY e.startTime DESC")
-    List<Event> searchEvents(String query);
+    Page<Event> searchEvents(String query, Pageable pageable);
 }
