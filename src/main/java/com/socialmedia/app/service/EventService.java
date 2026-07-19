@@ -364,7 +364,6 @@ public class EventService {
                 .id(user.getId())
                 .username(user.getUsername())
                 .fullName(user.getFullName())
-                .email(user.getEmail())
                 .profileImageUrl(user.getProfileImageUrl())
                 .build();
     }
