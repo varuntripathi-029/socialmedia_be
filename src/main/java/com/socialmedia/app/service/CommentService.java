@@ -91,7 +91,6 @@ public class CommentService {
         return UserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
-                .email(user.getEmail())
                 .fullName(user.getFullName())
                 .bio(user.getBio())
                 .profileImageUrl(user.getProfileImageUrl())
