@@ -19,7 +19,11 @@ public class SearchController {
     private final SearchService searchService;
 
     @GetMapping
-    public ResponseEntity<SearchResultResponse> search(@RequestParam String query) {
-        return ResponseEntity.ok(searchService.search(query));
+    public ResponseEntity<SearchResultResponse> search(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(searchService.search(query, page, size));
     }
 }

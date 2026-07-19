@@ -3,6 +3,8 @@ package com.socialmedia.app.service;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +18,7 @@ import com.socialmedia.app.model.EventStatus;
 import com.socialmedia.app.model.User;
 import com.socialmedia.app.repository.EventRepository;
 import com.socialmedia.app.repository.PostRepository;
+import com.socialmedia.app.util.Constants;
 
 import lombok.RequiredArgsConstructor;
 
@@ -27,9 +30,10 @@ public class SearchService {
     private final EventRepository eventRepository;
 
     @Transactional(readOnly = true)
-    public SearchResultResponse search(String query) {
-        List<Post> posts = postRepository.searchByTagOrLocation(query);
-        List<Event> events = eventRepository.searchEvents(query);
+    public SearchResultResponse search(String query, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Constants.clampPageSize(size));
+        List<Post> posts = postRepository.searchByTagOrLocation(query, pageable).getContent();
+        List<Event> events = eventRepository.searchEvents(query, pageable).getContent();
 
         List<PostResponse> postResponses = posts.stream()
                 .map(this::mapToPostResponse)
