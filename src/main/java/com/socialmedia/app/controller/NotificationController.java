@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.socialmedia.app.dto.response.ApiResponse;
@@ -28,17 +29,25 @@ public class NotificationController {
     private final UserRepository userRepository;
 
     @GetMapping
-    public ResponseEntity<List<NotificationResponse>> getNotifications(Authentication auth) {
+    public ResponseEntity<List<NotificationResponse>> getNotifications(
+            Authentication auth,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
         User currentUser = userRepository.findByUsername(auth.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        return ResponseEntity.ok(notificationService.getUserNotifications(currentUser.getId()));
+        return ResponseEntity.ok(notificationService.getUserNotifications(currentUser.getId(), page, size));
     }
 
     @GetMapping("/unread")
-    public ResponseEntity<List<NotificationResponse>> getUnreadNotifications(Authentication auth) {
+    public ResponseEntity<List<NotificationResponse>> getUnreadNotifications(
+            Authentication auth,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
         User currentUser = userRepository.findByUsername(auth.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        return ResponseEntity.ok(notificationService.getUnreadNotifications(currentUser.getId()));
+        return ResponseEntity.ok(notificationService.getUnreadNotifications(currentUser.getId(), page, size));
     }
 
     @PutMapping("/{id}/read")
