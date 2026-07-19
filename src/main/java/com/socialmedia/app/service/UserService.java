@@ -1,8 +1,10 @@
 package com.socialmedia.app.service;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -27,9 +29,11 @@ import com.socialmedia.app.repository.UserRepository;
 import com.socialmedia.app.repository.UsernameHistoryRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserService {
 
     private final UserRepository userRepository;
@@ -38,17 +42,67 @@ public class UserService {
     private final EventRepository eventRepository;
     private final EventParticipantRepository eventParticipantRepository;
     private final FollowRepository followRepository;
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    // Profile fields (bio, name, avatar, etc.) carry nothing per-viewer, so — unlike posts —
+    // this is safe to cache globally by id/username with no overlay step needed.
+    private static final long PROFILE_CACHE_TTL_SECONDS = 600;
 
     public UserResponse getUserProfile(Long userId) {
+        String cacheKey = "user:profile:id:" + userId;
+        UserResponse cached = getCachedProfile(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return mapToUserResponse(user);
+        UserResponse response = mapToUserResponse(user);
+        cacheProfile(cacheKey, response);
+        return response;
     }
 
     public UserResponse getUserByUsername(String username) {
+        String cacheKey = "user:profile:username:" + username;
+        UserResponse cached = getCachedProfile(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return mapToUserResponse(user);
+        UserResponse response = mapToUserResponse(user);
+        cacheProfile(cacheKey, response);
+        return response;
+    }
+
+    private UserResponse getCachedProfile(String cacheKey) {
+        try {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                return (UserResponse) cached;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to query profile cache from Redis. Falling back to DB query.", e);
+        }
+        return null;
+    }
+
+    private void cacheProfile(String cacheKey, UserResponse response) {
+        try {
+            redisTemplate.opsForValue().set(cacheKey, response, Duration.ofSeconds(PROFILE_CACHE_TTL_SECONDS));
+        } catch (Exception e) {
+            log.warn("Failed to store profile in Redis cache.", e);
+        }
+    }
+
+    private void evictProfileCache(Long userId, String username) {
+        try {
+            redisTemplate.delete("user:profile:id:" + userId);
+            redisTemplate.delete("user:profile:username:" + username);
+        } catch (Exception e) {
+            log.warn("Failed to evict profile cache for user {} (Redis down/timeout).", userId, e);
+        }
     }
 
     public List<UserResponse> searchUsers(String query) {
@@ -75,6 +129,7 @@ public class UserService {
     @Transactional
     public UserResponse updateProfile(UpdateProfileRequest request) {
         User currentUser = getCurrentUser();
+        String previousUsername = currentUser.getUsername();
 
         // Check if username is being changed
         if (!currentUser.getUsername().equals(request.getUsername())) {
@@ -116,6 +171,10 @@ public class UserService {
         }
 
         userRepository.save(currentUser);
+        evictProfileCache(currentUser.getId(), previousUsername);
+        if (!previousUsername.equals(currentUser.getUsername())) {
+            evictProfileCache(currentUser.getId(), currentUser.getUsername());
+        }
 
         return mapToUserResponse(currentUser);
     }
