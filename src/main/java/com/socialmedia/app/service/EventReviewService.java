@@ -99,7 +99,6 @@ public class EventReviewService {
                         .id(review.getReviewer().getId())
                         .username(review.getReviewer().getUsername())
                         .fullName(review.getReviewer().getFullName())
-                        .email(review.getReviewer().getEmail())
                         .profileImageUrl(review.getReviewer().getProfileImageUrl())
                         .build())
                 .stars(review.getStars())
