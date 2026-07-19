@@ -22,6 +22,14 @@ Standard rate-limiting strategies that log client requests to a database table i
 Relying entirely on a caching layer introduces a Single Point of Failure. If the Redis server experiences network dropouts, memory exhaustion, or restarts, throwing exceptions during cache or rate-limiting lookups would crash all core APIs.
 * **Solution**: Integrated a resilient failover mechanism. Every Redis template call in the cache-aside and trending events system is wrapped in localized try-catch blocks. If a connection exception is caught, the failure is logged as a warning, and the API gracefully falls back to performing standard PostgreSQL queries, ensuring the application remains fully functional when Redis is offline.
 
+### Ephemeral Filesystem Wiping User Media on Every Redeploy
+User-uploaded post and profile images were written directly to local disk under `uploads/` and served back via a static `/uploads/**` mapping. This works fine on a persistent server, but PaaS platforms (first Railway, now Render) run the app inside a container filesystem that is rebuilt from scratch on every deploy. PostgreSQL data survived because it lives in an external managed database (Neon), but every image on disk was silently lost on each redeploy.
+* **Solution**: Migrated media storage behind a `FileStorageProvider` interface (strategy pattern), with `CloudinaryStorageProvider` as the active implementation, selected via the `storage.provider` property. `FileStorageService` no longer knows or cares which backend is behind it — it just delegates to whichever provider is wired in. The uploaded file is streamed straight to Cloudinary and the returned `secure_url` (a permanent CDN link) is persisted on the entity instead of a local file path, so storage is fully decoupled from the application container and survives redeploys, restarts, and horizontal scaling. Adding S3 or another backend later is a single new class implementing `FileStorageProvider` — no existing code changes.
+
+### Redis Command Hang on Partial Outage
+The Redis fail-open design above only helps once a call actually throws — but without an explicit command timeout, Lettuce's client defaults to a 60-second timeout per command. A degraded-but-not-dead Redis instance could therefore block every rate-limited or cached request for up to a minute before falling back, rather than failing fast.
+* **Solution**: Set `spring.data.redis.timeout=300ms` explicitly, bounding the worst-case latency of any single Redis call so the existing fail-open fallback engages quickly instead of hanging the request thread.
+
 ## Tech Stack
 
 - **Java 21**
@@ -30,6 +38,7 @@ Relying entirely on a caching layer introduces a Single Point of Failure. If the
 - **In-Memory Cache & Counters**: Redis (via spring-boot-starter-data-redis)
 - **ORM**: Hibernate / Spring Data JPA
 - **Authentication**: JWT & Google OAuth2 Client
+- **Media Storage**: Cloudinary
 - **Boilerplate Reduction**: Lombok
 
 ## Setup and Local Development
