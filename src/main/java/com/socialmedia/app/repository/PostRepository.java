@@ -38,12 +38,6 @@ public interface PostRepository extends JpaRepository<Post, Long> {
 
     Page<Post> findByUserIdInOrderByCreatedAtDesc(List<Long> userIds, Pageable pageable);
 
-    // Unfiltered reads — callers migrate to the visible* variants below, then these come out.
-    Page<Post> findAllByOrderByCreatedAtDesc(Pageable pageable);
-
-    @Query("SELECT p FROM Post p WHERE LOWER(p.caption) LIKE LOWER(CONCAT('%', :tag, '%')) OR LOWER(p.eventLocation) LIKE LOWER(CONCAT('%', :tag, '%')) ORDER BY p.createdAt DESC")
-    Page<Post> searchByTagOrLocation(String tag, Pageable pageable);
-
     /**
      * Global feed, restricted to what this viewer is allowed to see.
      * Replaces the unfiltered {@code findAllByOrderByCreatedAtDesc}.
