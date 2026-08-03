@@ -50,6 +50,24 @@ The profile endpoint correctly hides a private account's followers/following lis
 `UserResponse`, used to embed "who posted/commented/organized this" across nearly every endpoint, included a raw `email` field populated unconditionally — meaning post authors, comment authors, event organizers and reviewers, search results, and follow lists all leaked real email addresses to any authenticated viewer, not just the account owner.
 * **Solution**: Removed `email` from every "other user" context across the codebase, keeping it only where a user is legitimately looking at their own account — login, registration, Google OAuth sign-in, and `GET /api/users/me`. Every other call site (profile views of other users, search, posts, comments, events, reviews, follow lists) now omits it.
 
+### Private Accounts' Posts Readable Through Five Unchecked Endpoints
+The follow-list fix above closed one gap, but a later audit of *every* read path found the same shape of problem underneath it: `isPrivate` was consulted in 4 places and skipped in 5. A private account's posts came back in full from the global feed, `GET /api/posts/user/{userId}`, `GET /api/posts/{postId}`, post search, and global search. `/api/posts/user/{userId}` returned exactly what the one gated endpoint refused to return, for the same user, with no check.
+* **Solution**: Moved the rule out of individual endpoints and into the query layer. `PostRepository.VISIBILITY_PREDICATE` is a single JPQL fragment — author is public, *or* is the viewer, *or* is someone the viewer already follows — inlined into every query that spans multiple authors, with `VisibilityService.canViewUserContent` covering single-target lookups. Per-endpoint `if` statements were rejected deliberately: they recreate the original failure mode (a rule every new read path must remember) and they break pagination, because filtering a page of 20 afterwards leaves 3 rows and no way to tell whether to fetch more. A pending follow request grants nothing — only an accepted follow does. `GET /api/posts/{id}` returns **404 rather than 403**, since a 403 would confirm the post exists.
+* **Second-order bug this created**: the posts feed cached under a single shared key. Once the feed became viewer-dependent, that key would have handed one user's visible set — private posts included — to whoever read it next, and every content-level test would still have passed, because tests run against a cold cache. Keys are now scoped per viewer, and the test suite asserts on cache **key shape** rather than only on response bodies.
+
+### Event Attendee Lists Public to Anyone, Including Logged-Out Visitors
+`GET /api/events/**` is `permitAll` for discovery, which also made `GET /api/events/{id}/participants` readable with no account at all — every attendee's username and avatar, for any event.
+* **Solution**: Split the roster from the headcount, because they leak differently. The roster is now host-only and closes entirely once an event expires (by explicit end *or* by its end time passing — a host is not obliged to press the button). The headcount stays public forever via `GET /api/events/{id}/participant-summary`, so turnout remains discoverable while attendance does not. Nothing is deleted: `event_participants` rows are untouched and the policy is a read-time check, so it is reversible and the count stays derivable. The summary also returns `viewerAttending` for the caller, which is what lets the UI still render Join/Leave without being handed the list.
+* **Known remaining gap**: only attendees can write a review, so the publicly-readable `GET /api/events/{id}/reviews` still discloses that its reviewers attended.
+
+## Tests
+
+```bash
+mvn verify
+```
+
+29 tests covering the access-control rules above and the cache-key correctness that backs them. They run against in-memory H2 with Redis mocked, and the test profile overrides the datasource explicitly — so the suite never touches the real database even when a `.env` with live credentials is present.
+
 ## Tech Stack
 
 - **Java 21**
