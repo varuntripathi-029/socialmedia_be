@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.socialmedia.app.dto.request.EventCreateRequest;
 import com.socialmedia.app.dto.response.ApiResponse;
 import com.socialmedia.app.dto.response.EventParticipantResponse;
+import com.socialmedia.app.dto.response.EventParticipantSummaryResponse;
 import com.socialmedia.app.dto.response.EventResponse;
 import com.socialmedia.app.model.RSVPStatus;
 import com.socialmedia.app.service.EventService;
@@ -90,9 +91,31 @@ public class EventController {
                 .build());
     }
 
+    /**
+     * Host-only, and closed entirely once the event expires. Everyone else — and everyone, after
+     * expiry — uses {@code /participant-summary} below.
+     */
     @GetMapping("/{id}/participants")
-    public ResponseEntity<List<EventParticipantResponse>> getEventParticipants(@PathVariable Long id) {
-        return ResponseEntity.ok(eventService.getEventParticipants(id));
+    public ResponseEntity<List<EventParticipantResponse>> getEventParticipants(
+            @PathVariable Long id,
+            Authentication authentication
+    ) {
+        String username = authentication != null ? authentication.getName() : null;
+        return ResponseEntity.ok(eventService.getEventParticipants(id, username));
+    }
+
+    /**
+     * The public headcount. Deliberately readable without authentication so event turnout stays
+     * discoverable to anyone browsing, which is the whole point of keeping a count public while
+     * the roster is private.
+     */
+    @GetMapping("/{id}/participant-summary")
+    public ResponseEntity<EventParticipantSummaryResponse> getParticipantSummary(
+            @PathVariable Long id,
+            Authentication authentication
+    ) {
+        String username = authentication != null ? authentication.getName() : null;
+        return ResponseEntity.ok(eventService.getParticipantSummary(id, username));
     }
 
     @PutMapping("/{id}/end")

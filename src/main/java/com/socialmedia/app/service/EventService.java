@@ -1,5 +1,7 @@
 package com.socialmedia.app.service;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -8,8 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.socialmedia.app.dto.request.EventCreateRequest;
 import com.socialmedia.app.dto.response.EventParticipantResponse;
+import com.socialmedia.app.dto.response.EventParticipantSummaryResponse;
 import com.socialmedia.app.dto.response.EventResponse;
 import com.socialmedia.app.dto.response.UserResponse;
+import com.socialmedia.app.exception.ForbiddenException;
 import com.socialmedia.app.exception.ResourceNotFoundException;
 import com.socialmedia.app.model.Event;
 import com.socialmedia.app.model.EventParticipant;
@@ -46,6 +50,14 @@ public class EventService {
     private static final String TRENDING_EVENTS_KEY = "trending:events";
     private static final long EVENTS_CACHE_TTL_MINUTES = 5;
 
+    // Attendance counts are cached separately from the feed because their staleness tolerance is
+    // different on each side of expiry. An active event's count still moves, so it gets a short
+    // TTL; an expired event's count can never change again, so it gets a long one and effectively
+    // stops touching PostgreSQL entirely.
+    private static final String PARTICIPANT_COUNT_KEY_PREFIX = "event:participants:count:";
+    private static final long ACTIVE_COUNT_TTL_SECONDS = 60;
+    private static final long EXPIRED_COUNT_TTL_HOURS = 24;
+
     /**
      * Safely evicts the events feed cache from Redis.
      * Keeps execution safe if Redis connection is unavailable.
@@ -56,6 +68,68 @@ public class EventService {
             log.info("Evicted events feed cache: {}", EVENTS_FEED_CACHE_KEY);
         } catch (Exception e) {
             log.warn("Failed to evict events feed cache from Redis (Redis down/timeout).", e);
+        }
+    }
+
+    private static String participantCountKey(Long eventId) {
+        return PARTICIPANT_COUNT_KEY_PREFIX + eventId;
+    }
+
+    /**
+     * An event is expired once the host has ended it or its end time has passed. Both count,
+     * because the host is not obliged to press the button — an event that ran last month is over
+     * whether or not anyone told the system so.
+     */
+    private boolean isExpired(Event event) {
+        if (EventStatus.ENDED.equals(event.getStatus())) {
+            return true;
+        }
+        return event.getEndTime() != null && event.getEndTime().isBefore(LocalDateTime.now());
+    }
+
+    /**
+     * Confirmed-attendee count, read through Redis.
+     *
+     * This is the hot path: {@code mapToEventResponse} needs a count for every event it renders,
+     * so the events feed was issuing one {@code countByEventIdAndRsvpStatus} per event — a
+     * textbook N+1 that scaled with the size of the feed. Serving it from Redis collapses that to
+     * one round trip per event id, and for expired events the value is immutable so the entry
+     * survives a full day.
+     *
+     * Fails open like every other cache read here: a Redis outage degrades this to the previous
+     * per-event query rather than failing the request.
+     */
+    private int getParticipantCount(Event event) {
+        String key = participantCountKey(event.getId());
+        try {
+            Object cached = redisTemplate.opsForValue().get(key);
+            if (cached != null) {
+                return Integer.parseInt(cached.toString());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read participant count from Redis for event {}. Falling back to DB.",
+                    event.getId(), e);
+        }
+
+        int count = eventParticipantRepository.countByEventIdAndRsvpStatus(event.getId(), RSVPStatus.GOING);
+
+        try {
+            Duration ttl = isExpired(event)
+                    ? Duration.ofHours(EXPIRED_COUNT_TTL_HOURS)
+                    : Duration.ofSeconds(ACTIVE_COUNT_TTL_SECONDS);
+            redisTemplate.opsForValue().set(key, Integer.toString(count), ttl);
+        } catch (Exception e) {
+            log.warn("Failed to cache participant count in Redis for event {}.", event.getId(), e);
+        }
+
+        return count;
+    }
+
+    private void evictParticipantCount(Long eventId) {
+        try {
+            redisTemplate.delete(participantCountKey(eventId));
+        } catch (Exception e) {
+            log.warn("Failed to evict participant count cache for event {} (Redis down/timeout).", eventId, e);
         }
     }
 
@@ -104,8 +178,9 @@ public class EventService {
             log.warn("Failed to initialize trending score in Redis for event {}", savedEvent.getId(), e);
         }
 
-        // Evict events cache on creation
+        // Evict events cache on creation. The organizer auto-joins above, so the count moved too.
         evictEventsCache();
+        evictParticipantCount(savedEvent.getId());
 
         return mapToEventResponse(savedEvent);
     }
@@ -146,6 +221,7 @@ public class EventService {
 
             // Evict events cache on RSVP change
             evictEventsCache();
+            evictParticipantCount(eventId);
 
             // Increment trending events score
             if (rsvpStatus == RSVPStatus.GOING) {
@@ -176,6 +252,7 @@ public class EventService {
 
         // Evict events cache when leaving an event
         evictEventsCache();
+        evictParticipantCount(eventId);
 
         // Decrement trending events score or adjust it when a user leaves an event
         try {
@@ -224,11 +301,68 @@ public class EventService {
         return mapToEventResponse(event);
     }
 
+    /**
+     * The attendee roster — host-only, and only while the event is still running.
+     *
+     * Two separate refusals, in this order:
+     *
+     * 1. Once an event expires the roster is gone for everybody, the host included. Attendance
+     *    collapses to the headcount served by {@link #getParticipantSummary}. The rows are not
+     *    deleted — this is a read-time policy, so it is reversible and the count stays derivable.
+     * 2. While the event is live, only the organizer may see who is coming.
+     *
+     * Expiry is checked first so that a non-host asking about an expired event is told the roster
+     * is closed rather than that they are not the host — the second message would confirm the
+     * event has an identifiable organizer to someone who has no business enumerating it.
+     */
     @Transactional(readOnly = true)
-    public List<EventParticipantResponse> getEventParticipants(Long eventId) {
+    public List<EventParticipantResponse> getEventParticipants(Long eventId, String username) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found id: " + eventId));
+
+        if (isExpired(event)) {
+            throw new ForbiddenException(
+                    "This event has ended. Only the attendee count remains available.");
+        }
+
+        if (username == null || !event.getOrganizer().getUsername().equals(username)) {
+            throw new ForbiddenException("Only the event host can see who is attending.");
+        }
+
         return eventParticipantRepository.findByEventId(eventId).stream()
                 .map(this::mapToParticipantResponse)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * The headcount — public to everyone, forever, for every event.
+     *
+     * This is the deliberate counterweight to locking down the roster: turnout stays legible so
+     * people can tell which events actually draw a crowd, while who showed up stays private.
+     *
+     * {@code viewerAttending} is per-viewer and so is resolved fresh on every call rather than
+     * cached with the count — the same separation the posts feed makes between the shared list
+     * and the viewer's like state.
+     */
+    @Transactional(readOnly = true)
+    public EventParticipantSummaryResponse getParticipantSummary(Long eventId, String username) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found id: " + eventId));
+
+        Boolean viewerAttending = null;
+        if (username != null) {
+            viewerAttending = userRepository.findByUsername(username)
+                    .map(viewer -> eventParticipantRepository.existsByEventIdAndUserId(eventId, viewer.getId()))
+                    .orElse(false);
+        }
+
+        return EventParticipantSummaryResponse.builder()
+                .eventId(eventId)
+                .participantCount(getParticipantCount(event))
+                .maxParticipants(event.getMaxParticipants())
+                .expired(isExpired(event))
+                .viewerAttending(viewerAttending)
+                .build();
     }
 
     @Transactional
@@ -243,8 +377,11 @@ public class EventService {
         event.setStatus(EventStatus.ENDED);
         Event savedEvent = eventRepository.save(event);
 
-        // Evict events cache when ending an event
+        // Evict events cache when ending an event. The count entry must go too: it was written
+        // with the short active-event TTL, and ending the event makes it immutable, so it should
+        // be re-cached under the 24h expired TTL on next read.
         evictEventsCache();
+        evictParticipantCount(eventId);
 
         return mapToEventResponse(savedEvent);
     }
@@ -272,6 +409,7 @@ public class EventService {
 
         // Evict events cache on deletion
         evictEventsCache();
+        evictParticipantCount(eventId);
     }
 
     /**
@@ -326,7 +464,9 @@ public class EventService {
     }
 
     private EventResponse mapToEventResponse(Event event) {
-        int activeParticipants = eventParticipantRepository.countByEventIdAndRsvpStatus(event.getId(), RSVPStatus.GOING);
+        // Served from Redis. Previously one COUNT query per event, which meant the events feed
+        // issued N of them for N events.
+        int activeParticipants = getParticipantCount(event);
 
         return EventResponse.builder()
                 .id(event.getId())
@@ -346,6 +486,7 @@ public class EventService {
                 .mediaFiles(event.getMediaFiles())
                 .createdAt(event.getCreatedAt())
                 .currentParticipantsCount(activeParticipants)
+                .expired(isExpired(event))
                 .build();
     }
 
