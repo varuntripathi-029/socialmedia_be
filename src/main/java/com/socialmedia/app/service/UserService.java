@@ -23,7 +23,6 @@ import com.socialmedia.app.model.User;
 import com.socialmedia.app.model.UsernameHistory;
 import com.socialmedia.app.repository.EventParticipantRepository;
 import com.socialmedia.app.repository.EventRepository;
-import com.socialmedia.app.repository.FollowRepository;
 import com.socialmedia.app.repository.PostRepository;
 import com.socialmedia.app.repository.UserRepository;
 import com.socialmedia.app.repository.UsernameHistoryRepository;
@@ -41,7 +40,7 @@ public class UserService {
     private final PostRepository postRepository;
     private final EventRepository eventRepository;
     private final EventParticipantRepository eventParticipantRepository;
-    private final FollowRepository followRepository;
+    private final VisibilityService visibilityService;
     private final RedisTemplate<String, Object> redisTemplate;
 
     // Profile fields (bio, name, avatar, etc.) carry nothing per-viewer, so — unlike posts —
@@ -183,11 +182,10 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        if (user.isPrivate()) {
-            User currentUser = getCurrentUser();
-            if (!currentUser.getId().equals(user.getId()) && !followRepository.existsByFollowerAndFollowing(currentUser, user)) {
-                return new java.util.ArrayList<>();
-            }
+        // Same rule as every other read path, resolved from the one shared definition rather than
+        // re-implemented here (this inline copy was previously the *only* place posts were gated).
+        if (!visibilityService.canViewUserContent(getCurrentUser().getId(), user.getId())) {
+            return new java.util.ArrayList<>();
         }
 
         List<Post> posts = postRepository.findByUserIdOrderByCreatedAtDesc(userId);
