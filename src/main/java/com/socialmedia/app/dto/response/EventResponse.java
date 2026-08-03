@@ -33,5 +33,13 @@ public class EventResponse {
     private UserResponse organizer;
     private List<String> mediaFiles;
     private LocalDateTime createdAt;
+
+    /**
+     * Confirmed attendee headcount. Public for every event — this is the signal that survives
+     * once the roster itself becomes host-only, so people can still see which events draw a crowd.
+     */
     private int currentParticipantsCount;
+
+    /** True once the host ended the event or its endTime passed. Drives the UI's roster hiding. */
+    private boolean expired;
 }
