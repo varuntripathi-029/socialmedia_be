@@ -28,11 +28,15 @@ public class SearchService {
 
     private final PostRepository postRepository;
     private final EventRepository eventRepository;
+    private final UserService userService;
 
     @Transactional(readOnly = true)
     public SearchResultResponse search(String query, int page, int size) {
+        // Global search reached posts directly and so bypassed every privacy check on the way.
+        // It now goes through the same viewer-scoped query as the feed.
+        Long viewerId = userService.getCurrentUser().getId();
         Pageable pageable = PageRequest.of(Math.max(page, 0), Constants.clampPageSize(size));
-        List<Post> posts = postRepository.searchByTagOrLocation(query, pageable).getContent();
+        List<Post> posts = postRepository.searchVisibleByTagOrLocation(query, viewerId, pageable).getContent();
         List<Event> events = eventRepository.searchEvents(query, pageable).getContent();
 
         List<PostResponse> postResponses = posts.stream()
