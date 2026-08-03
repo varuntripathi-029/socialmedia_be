@@ -42,6 +42,15 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.UNAUTHORIZED);
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiResponse> handleForbiddenException(ForbiddenException ex) {
+        ApiResponse response = ApiResponse.builder()
+                .success(false)
+                .message(ex.getMessage())
+                .build();
+        return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiResponse> handleBadCredentialsException(BadCredentialsException ex) {
         ApiResponse response = ApiResponse.builder()
