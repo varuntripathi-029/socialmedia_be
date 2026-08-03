@@ -36,6 +36,7 @@ public class PostService {
     private final CommentRepository commentRepository;
     private final UserService userService;
     private final FollowService followService;
+    private final VisibilityService visibilityService;
     private final RedisTemplate<String, Object> redisTemplate;
 
     private static final long POSTS_FEED_CACHE_TTL_SECONDS = 60;
@@ -69,6 +70,14 @@ Post post = Post.builder()
         User currentUser = userService.getCurrentUser();
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+
+        // A private account's post is not addressable by id either. "Not found" rather than
+        // "forbidden" on purpose — a 403 here would confirm the post exists, which is itself
+        // the thing being withheld.
+        if (!visibilityService.canViewUserContent(currentUser.getId(), post.getUser().getId())) {
+            throw new ResourceNotFoundException("Post not found");
+        }
+
         return mapToPostResponse(post, currentUser.getId());
     }
 
@@ -78,16 +87,24 @@ Post post = Post.builder()
      * point, so this relies on a short TTL instead of active eviction. The cached entries never
      * carry isLikedByCurrentUser (that's per-viewer, not safe to share across users); it's
      * overlaid fresh on every request via a single batched query.
+     *
+     * The cache key is scoped to the viewer because the *contents* of the feed are now
+     * per-viewer too: two users see different posts depending on which private accounts they
+     * follow. The previous shared `posts:feed:all:*` key would have served one user's visible
+     * set — private posts included — to everybody else who hit the same page. That is the same
+     * class of bug as the isLikedByCurrentUser leak, except it leaks the post rather than a
+     * heart icon, so it is fixed by construction rather than by an overlay.
      */
     public List<PostResponse> getAllPosts(int page, int size) {
         User currentUser = userService.getCurrentUser();
         int safeSize = Constants.clampPageSize(size);
         Pageable pageable = PageRequest.of(Math.max(page, 0), safeSize);
-        String cacheKey = "posts:feed:all:p" + pageable.getPageNumber() + ":s" + safeSize;
+        String cacheKey = "posts:feed:v" + currentUser.getId()
+                + ":p" + pageable.getPageNumber() + ":s" + safeSize;
 
         List<PostResponse> shared = getCachedOrNull(cacheKey);
         if (shared == null) {
-            Page<Post> posts = postRepository.findAllByOrderByCreatedAtDesc(pageable);
+            Page<Post> posts = postRepository.findVisiblePosts(currentUser.getId(), pageable);
             shared = posts.stream()
                     .map(this::mapToSharedPostResponse)
                     .collect(Collectors.toList());
@@ -99,7 +116,7 @@ Post post = Post.builder()
 
     public List<PostResponse> getUserPosts(Long userId) {
         User currentUser = userService.getCurrentUser();
-        List<Post> posts = postRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<Post> posts = postRepository.findVisiblePostsByAuthor(userId, currentUser.getId());
         return posts.stream()
                 .map(post -> mapToPostResponse(post, currentUser.getId()))
                 .collect(Collectors.toList());
@@ -125,7 +142,7 @@ Post post = Post.builder()
     public List<PostResponse> searchPosts(String tag, int page, int size) {
         User currentUser = userService.getCurrentUser();
         Pageable pageable = PageRequest.of(Math.max(page, 0), Constants.clampPageSize(size));
-        Page<Post> posts = postRepository.searchByTagOrLocation(tag, pageable);
+        Page<Post> posts = postRepository.searchVisibleByTagOrLocation(tag, currentUser.getId(), pageable);
         return posts.stream()
                 .map(post -> mapToPostResponse(post, currentUser.getId()))
                 .collect(Collectors.toList());
