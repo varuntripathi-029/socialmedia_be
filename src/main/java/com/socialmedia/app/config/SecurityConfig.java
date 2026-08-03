@@ -38,6 +38,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**", "/").permitAll()
                 .requestMatchers("/uploads/**").permitAll()
                 .requestMatchers("/api/users/check-username/**").permitAll()
+                // Must precede the blanket event GET rule below — Spring Security applies the
+                // first matching rule, so a more specific matcher placed after the wildcard would
+                // never be consulted. The roster is authenticated (and host-checked in the
+                // service); the headcount stays public alongside the rest of event discovery.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/events/*/participants").authenticated()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/events", "/api/events/**").permitAll()
                 .anyRequest().authenticated()
                 )
